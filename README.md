@@ -260,7 +260,38 @@ Quando o NTP sincroniza com sucesso, o RTC é atualizado automaticamente.
 
 ## Simulação Wokwi
 
-Defina `WOKWI_SIMULATION 1` no código para ativar o modo de simulação, que substitui o sensor SHT40 pelo DHT22 e desativa dependências de hardware específico do ambiente físico.
+O projeto possui suporte nativo ao [Wokwi](https://wokwi.com), plataforma de simulação de hardware para Arduino e ESP32 que roda direto no navegador, sem necessidade de nenhum componente físico.
+
+### Como ativar
+
+No início do arquivo `.ino`, altere a linha:
+
+```cpp
+#define WOKWI_SIMULATION 0  // hardware real
+```
+para:
+```cpp
+#define WOKWI_SIMULATION 1  // simulação Wokwi
+```
+
+### O que muda com a flag ativada
+
+| Comportamento | Hardware real (`0`) | Simulação Wokwi (`1`) |
+|---|---|---|
+| Sensor de temp/umidade | SHT40 via I2C | DHT22 no pino 15 |
+| Biblioteca do sensor | `Adafruit_SHT4x` | `DHT.h` |
+| Inicialização do sensor | `sht4.begin()` | `dht.begin()` |
+| Leitura do sensor | `sht4.getEvent()` | `dht.readTemperature/Humidity()` |
+
+### O que pode ser testado na simulação
+
+- Navegação completa pelo menu LCD (botão físico virtual ou via Blynk V18/V19)
+- Leitura e exibição de temperatura e umidade pelo DHT22
+- Leitura analógica do solo (variando o potenciômetro)
+- Controle de relés pelo menu ou pelo app Blynk
+- Alternância entre modos Vegetação e Floração
+- Lógica de horário para controle automático da luz
+- Conexão Wi-Fi, NTP e Blynk (o Wokwi suporta Wi-Fi simulado com acesso real à internet)
 
 ---
 
