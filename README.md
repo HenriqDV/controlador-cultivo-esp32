@@ -24,24 +24,118 @@ Sistema de automação para estufa de cultivo indoor baseado em **ESP32-S3**, co
 
 ## Hardware Necessário
 
-| Componente | Descrição |
-|---|---|
-| ESP32-S3 | Microcontrolador principal |
-| SHT40 (ou DHT22) | Sensor de temperatura e umidade |
-| DS3231 | Módulo RTC I2C |
-| LCD 16x2 I2C | Display com endereço 0x27 |
-| NeoPixel (1 LED) | LED de status RGB no pino 48 |
-| Sensor de solo analógico | Conectado ao pino 6 |
-| Módulo 8 relés | Pinos 35–42 (ativo em LOW) |
-| Buzzer passivo | Pino 17 |
-| Botão LCD | Pino 5 (INPUT_PULLUP) |
-| Botão de acesso (TRV) | Pino 19 (INPUT_PULLUP) |
+### Barramento I2C
+Os dispositivos SHT40, DS3231 e LCD compartilham o mesmo barramento I2C.
 
-### Pinagem I2C
-| Sinal | Pino ESP32-S3 |
+| Sinal | Pino ESP32-S3 | Conectar em |
+|---|---|---|
+| SDA | 8 | SDA do LCD + SDA do DS3231 + SDA do SHT40 |
+| SCL | 9 | SCL do LCD + SCL do DS3231 + SCL do SHT40 |
+| 3.3V | 3V3 | VCC do LCD + VCC do DS3231 + VCC do SHT40 |
+| GND | GND | GND do LCD + GND do DS3231 + GND do SHT40 |
+
+> O LCD 16x2 I2C deve estar configurado no endereço **0x27** (padrão da maioria dos módulos PCF8574).
+
+---
+
+### Sensor de Temperatura e Umidade
+
+**Hardware real → SHT40** (padrão quando `WOKWI_SIMULATION 0`)
+
+| Pino SHT40 | Pino ESP32-S3 |
 |---|---|
+| VIN | 3V3 |
+| GND | GND |
 | SDA | 8 |
 | SCL | 9 |
+
+**Simulação Wokwi → DHT22** (quando `WOKWI_SIMULATION 1`)
+
+| Pino DHT22 | Pino ESP32-S3 |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| DATA | 15 |
+
+> Resistor de pull-up de 10kΩ entre DATA e VCC é recomendado para o DHT22.
+
+---
+
+### Módulo RTC DS3231
+
+| Pino DS3231 | Pino ESP32-S3 |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| SDA | 8 |
+| SCL | 9 |
+
+---
+
+### Sensor de Umidade do Solo (analógico)
+
+| Pino do sensor | Pino ESP32-S3 |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| AOUT (sinal analógico) | 6 |
+
+> Os valores de calibração estão definidos no código como `SOIL_DRY_RAW 3200` (seco) e `SOIL_WET_RAW 2300` (úmido). Ajuste conforme seu sensor.
+
+---
+
+### Módulo de 8 Relés
+
+Todos os relés são **ativo em LOW** (HIGH = desligado, LOW = ligado). Conecte o sinal de controle de cada canal ao pino correspondente do ESP32-S3.
+
+| Canal do módulo | Pino ESP32-S3 | Função |
+|---|---|---|
+| IN1 | 42 | Luz de Cultivo |
+| IN2 | 41 | Trava de Acesso |
+| IN3 | 40 | Saída de Ar Vivosun |
+| IN4 | 39 | Entrada de Ar Fan |
+| IN5 | 38 | Ventilador Principal |
+| IN6 | 37 | Saída de Ar Dois |
+| IN7 | 36 | Entrada de Ar Dois |
+| IN8 | 35 | Ventilador Dois |
+| VCC | 5V | Alimentação do módulo |
+| GND | GND | GND comum |
+
+> Módulos de relé com optoacoplador geralmente exigem alimentação de **5V** no VCC do módulo. O sinal de controle de 3.3V do ESP32-S3 é suficiente para acionar os optoacopladores na maioria dos modelos.
+
+---
+
+### LED NeoPixel (WS2812B)
+
+| Pino NeoPixel | Pino ESP32-S3 |
+|---|---|
+| VCC / 5V | 5V |
+| GND | GND |
+| DIN (dados) | 48 |
+
+> O pino 48 é o LED RGB integrado em algumas versões do ESP32-S3 DevKit. Se estiver usando um NeoPixel externo, conecte o DIN ao pino 48 com um resistor de 300–500Ω em série.
+
+---
+
+### Buzzer
+
+| Pino Buzzer | Pino ESP32-S3 |
+|---|---|
+| + (positivo) | 17 |
+| − (negativo) | GND |
+
+> Use um buzzer **passivo** (sem oscilador interno). O código aciona o pino diretamente em HIGH/LOW.
+
+---
+
+### Botões
+
+| Botão | Pino ESP32-S3 | Modo |
+|---|---|---|
+| Botão Menu LCD | 5 | INPUT_PULLUP — conectar entre o pino e GND |
+| Botão Acesso (TRV) | 19 | INPUT_PULLUP — conectar entre o pino e GND |
+
+> Nenhum resistor externo é necessário — o pull-up interno do ESP32-S3 é habilitado via `INPUT_PULLUP`.
 
 ---
 
