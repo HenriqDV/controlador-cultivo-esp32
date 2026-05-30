@@ -1,9 +1,13 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <RTClib.h>
-#define BLYNK_TEMPLATE_ID "TMPL2FtN5v0dw"
-#define BLYNK_TEMPLATE_NAME "Cultivo"
-#define BLYNK_AUTH_TOKEN "BcpfT8DnE3wl0bKuR7dIEs2S_G1KEOgC"
+
+// Credenciais Blynk
+#define BLYNK_TEMPLATE_ID   "SEU_TEMPLATE_ID"
+#define BLYNK_TEMPLATE_NAME "Nome do Template"
+#define BLYNK_AUTH_TOKEN    "SEU_AUTH_TOKEN"
+
+// Wokwi:
 #define WOKWI_SIMULATION 0
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
@@ -16,8 +20,9 @@
 #include <math.h>
 
 // ---------------- WIFI ----------------
-const char* ssid = "Smurf";
-const char* password = "993728206";
+// Credenciais Wi-Fi
+const char* ssid     = "SUA_REDE";
+const char* password = "SUA_SENHA";
 
 const long GMT_OFFSET_SEC = -3 * 3600;
 const int DAYLIGHT_OFFSET_SEC = 0;
