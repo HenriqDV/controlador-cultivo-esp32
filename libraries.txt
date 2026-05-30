@@ -1,0 +1,7 @@
+MFRC522
+DHT sensor library
+Adafruit Unified Sensor
+Adafruit BusIO
+Adafruit PN532
+Adafruit SHT4x Library
+Blynk
