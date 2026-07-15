@@ -349,6 +349,8 @@ Quando o NTP sincroniza com sucesso, o RTC é atualizado automaticamente.
 
 O projeto possui suporte nativo ao [Wokwi](https://wokwi.com), plataforma de simulação de hardware para Arduino e ESP32 que roda direto no navegador, sem necessidade de nenhum componente físico.
 
+🔗 **Simulador pronto:** [wokwi.com/projects/469072620110084097](https://wokwi.com/projects/469072620110084097)
+
 ### Como ativar
 
 No início do arquivo `.ino`, altere a linha:
