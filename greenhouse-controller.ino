@@ -25,6 +25,8 @@
 //      SDA = 8   SCL = 9
 //    Sensores:
 //      DHTPIN = 15 (só simulação)   |   SOIL_PIN = 6 (ADC, sensor de solo)
+//      DHT_EXT_PIN = 16 (sensor externo, fora da estufa — DHT11 no hardware
+//      físico / DHT22 na simulação Wokwi, sempre presente nos dois modos)
 //    Atuadores:
 //      BUZZER = 17   |   LED_PIN = 4 na simulação Wokwi / 48 no hardware físico
 //      (NeoPixel de status — pino muda sozinho com WOKWI_SIMULATION, pois no
@@ -101,6 +103,16 @@ const unsigned long RETENTATIVA_BLYNK_MS = 5000;
 #define DHTTYPE DHT22
 #endif
 
+// Sensor externo (fora da estufa) — sempre presente, nos dois modos.
+// Hardware físico usa DHT11; a simulação Wokwi usa DHT22 (mesmo sensor do
+// modelo interno, já que o Wokwi não tem um componente DHT11 dedicado).
+#define DHT_EXT_PIN 16
+#if WOKWI_SIMULATION
+#define DHT_EXT_TYPE DHT22
+#else
+#define DHT_EXT_TYPE DHT11
+#endif
+
 #define SOIL_PIN 6
 
 // ---------------- CALIBRAÇÃO DO SENSOR DE SOLO ----------------
@@ -144,8 +156,6 @@ int reles[8] = {42, 41, 40, 39, 38, 37, 36, 35};
 // NÃO podem ser usados como GPIO comum. Se for o seu caso, remapeie os
 // relés que caírem nesses pinos (índices 5, 6 e 7 do array acima) para
 // outros GPIOs livres da sua placa antes de montar o circuito.
-// OBS.: Foi utilizado um ESP32-S3 com variante "N8R2" aonde os pinos 
-// GPIO35, GPIO36 e GPIO37 podem ser usados normalmente.
 
 // ---------------- RELÉS UTILIZADOS ----------------
 // Índices dentro do array "reles[8]" (definido acima) e seus papéis fixos.
@@ -167,11 +177,11 @@ const int RELE_EXAUSTOR_2 = 3;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // O painel físico tem uma faixa amarela de 16px no topo e o restante azul.
-// Esses limites garantem que nada fique cortado na costura entre as cores.
-const int OLED_ALTURA_CABECALHO = 16;                 // faixa amarela (linhas 0-15)
-const int OLED_ALTURA_RODAPE = 11;                     // faixa de rodapé (dentro da azul)
-const int OLED_CONTEUDO_TOPO = OLED_ALTURA_CABECALHO + 2;         // margem de 2px após a costura
-const int OLED_CONTEUDO_BASE = SCREEN_HEIGHT - OLED_ALTURA_RODAPE; // linha do separador do rodapé
+// Esse limite garante que nada fique cortado na costura entre as cores.
+// (O antigo rodapé padrão, que reservava uma faixa extra embaixo, não
+// existe mais em nenhuma tela do design atual — foi removido.)
+const int OLED_ALTURA_CABECALHO = 16;                       // faixa amarela (linhas 0-15)
+const int OLED_CONTEUDO_TOPO = OLED_ALTURA_CABECALHO + 2;    // margem de 2px após a costura
 
 // ---------------- OBJETOS ----------------
 RTC_DS1307 rtc;
@@ -180,6 +190,9 @@ DHT dht(DHTPIN, DHTTYPE);
 #else
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 #endif
+// Sensor externo (fora da estufa) — sempre existe, independente do modo de
+// compilação (só o tipo de sensor muda, via DHT_EXT_TYPE acima).
+DHT dhtExterno(DHT_EXT_PIN, DHT_EXT_TYPE);
 Adafruit_NeoPixel pixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // ---------------- LED ----------------
@@ -233,9 +246,8 @@ const unsigned long DURACAO_OVERRIDE_LUZ_MS = 30UL * 60UL * 1000UL; // 30 minuto
 // curto, V19 = clique longo) via executarCliqueCurtoMenuRemoto() /
 // executarCliqueLongoMenuRemoto().
 enum TelaOLED {
-  TELA_PRINCIPAL,      // cabeçalho + rodapé + temperatura/umidade
-  TELA_SECUNDARIA,      // cabeçalho + rodapé + modo de cultivo + tempo de luz
-  TELA_CONFIGURACAO,    // cabeçalho + rodapé + menu interativo dos relés
+  TELA_PRINCIPAL,      // temperatura/umidade interna e externa
+  TELA_CONFIGURACAO,    // menu com abas "Dispositivos" (relés) e "Status"
   TOTAL_TELAS_OLED
 };
 
@@ -277,9 +289,20 @@ float tempAtual = NAN;
 float umidAtual = NAN;
 unsigned long ultimoDHT = 0;
 const unsigned long INTERVALO_DHT_MS = 2000; // intervalo mínimo recomendado p/ DHT22; SHT40 aceita mais rápido
-bool pulsoSensorAtivo = false;      // indicador visual de "sensor vivo" (bolinha na TELA_PRINCIPAL)
+bool pulsoSensorAtivo = false;      // indicador visual de "sensor vivo" (bolinha ao lado de "Interna", na TELA_PRINCIPAL)
 unsigned long pulsoSensorAte = 0;
 const unsigned long DURACAO_PULSO_SENSOR_MS = 300; // por quanto tempo o pulso fica visível a cada leitura
+
+// ---------------- DHT EXTERNO (temperatura/umidade fora da estufa) ----------------
+// Sensor independente, no GPIO16 (DHT_EXT_PIN). Mesma lógica de "só aceita
+// se mudou o suficiente" do sensor interno, e tem seu próprio indicador de
+// "sensor vivo" (bolinha ao lado de "Externa", na TELA_PRINCIPAL).
+float tempExterna = NAN;
+float umidExterna = NAN;
+unsigned long ultimoDHTExterno = 0;
+const unsigned long INTERVALO_DHT_EXTERNO_MS = 2000; // seguro tanto para DHT11 (>=1s) quanto DHT22 (>=2s)
+bool pulsoSensorExternoAtivo = false;
+unsigned long pulsoSensorExternoAte = 0;
 
 // ---------------- SOLO (sensor de umidade do solo) ----------------
 // Ver constantes de calibração (SOLO_ADC_SECO/SOLO_ADC_UMIDO) lá em cima,
@@ -288,6 +311,8 @@ int soloBruto = 0;       // última leitura crua do ADC (média de SOLO_AMOSTRAS
 int soloPercentual = 0;  // 0 = seco, 100 = encharcado, já calibrado
 unsigned long ultimoSolo = 0;
 const unsigned long INTERVALO_SOLO_MS = 1000;
+bool pulsoSensorSoloAtivo = false;  // indicador visual de "sensor vivo" (bolinha ao lado de "Solo", na TELA_PRINCIPAL)
+unsigned long pulsoSensorSoloAte = 0;
 
 // ---------------- BUZZER ----------------
 // Beep não-bloqueante: beep() liga o buzzer e agenda o desligamento; quem
@@ -608,8 +633,8 @@ void abrirTelaRapidaOLED() {
 }
 
 // Confirma a entrada na tela atualmente destacada no OLED_MENU (pressão
-// longa). Se for a TELA_CONFIGURACAO, reseta a seleção para o primeiro item
-// ("Modo Cultivo"), garantindo um ponto de partida previsível.
+// longa). Sempre abre a lista de Dispositivos direto no primeiro item
+// ("Modo Cultivo") — a seta já nasce ali, sem etapa intermediária.
 void selecionarTelaOLED() {
   estadoOLED = OLED_EXIBINDO;
   if (telaSelecionada == TELA_CONFIGURACAO) {
@@ -644,18 +669,16 @@ void avancarNavegacaoOLED() {
 }
 
 // Roteia o que um "clique curto" deve fazer, dependendo do estado atual:
-//   - Tela de descanso    -> acorda o display (abrirTelaRapidaOLED)
-//   - Menu de confirmação -> avança pro próximo item do ciclo
-//   - TELA_CONFIGURACAO já aberta -> avança item selecionado dentro do menu
-//   - Qualquer outra tela -> avança pra próxima tela
+//   - Tela de descanso     -> acorda o display (abrirTelaRapidaOLED)
+//   - Informações          -> avança para Configurações (confirmação)
+//   - Configurações (menu) -> avança de volta para Informações (ciclo)
+//   - Lista de Dispositivos (já aberta) -> avança item selecionado no menu
+// Ciclo completo por clique curto: Descanso -> Informações -> Configurações
+// -> Informações -> Configurações -> ... Pressão longa em Configurações é
+// que abre a lista de dispositivos (ver atualizarBotaoOLED).
 void tratarCliqueCurtoBotaoOLED() {
   if (estadoOLED == OLED_DESCANSO) {
     abrirTelaRapidaOLED();
-    return;
-  }
-
-  if (estadoOLED == OLED_MENU) {
-    avancarNavegacaoOLED();
     return;
   }
 
@@ -749,11 +772,16 @@ void desenharIconeConexao(int x, int y) {
   }
 }
 
-// Cabeçalho comum às telas navegáveis (não é usado na tela de descanso, que
-// tem seu próprio cabeçalho — ver desenharCabecalhoDescanso). Ocupa toda a
-// faixa amarela do painel físico (16px) e termina com uma linha separadora
-// exatamente na costura entre as duas cores.
-void desenharCabecalho(const DateTime& now) {
+// Cabeçalho comum a TODAS as telas, inclusive a de descanso (que passou a
+// usá-lo também — ver desenharTelaDescanso). Ocupa toda a faixa amarela do
+// painel físico (16px) e termina com uma linha separadora exatamente na
+// costura entre as duas cores.
+// Cabeçalho comum a TODAS as telas, inclusive a de descanso — o texto do
+// título é parametrizado porque cada tela pode ter o seu próprio (ex:
+// "Cultivo" na tela de descanso, "Informacoes" na tela principal). Ocupa
+// toda a faixa amarela do painel físico (16px) e termina com uma linha
+// separadora exatamente na costura entre as duas cores.
+void desenharCabecalho(const DateTime& now, const char* titulo) {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
 
@@ -761,44 +789,20 @@ void desenharCabecalho(const DateTime& now) {
   const int y = 4;
 
   display.setCursor(0, y);
-  display.print("CULTIVO");
+  display.print(titulo);
 
   char buf[6];
   snprintf(buf, sizeof(buf), "%02d:%02d", now.hour(), now.minute());
   display.setCursor(SCREEN_WIDTH - 45, y);
   display.print(buf);
 
+  // O indicador de "sensor vivo" saiu daqui — agora fica em duas bolinhas
+  // dedicadas (uma por sensor) na TELA_PRINCIPAL, ao lado de "Interna" e
+  // "Externa" — ver desenharConteudoPrincipal().
   desenharIconeConexao(SCREEN_WIDTH - 13, y);
 
   // Separador exatamente na costura entre a faixa amarela e a azul
   display.drawFastHLine(0, OLED_ALTURA_CABECALHO - 1, SCREEN_WIDTH, SSD1306_WHITE);
-}
-
-// Rodapé comum às telas navegáveis: linha separadora + indicador de página
-// (bolinhas, uma por TelaOLED) + modo de cultivo (V/F) + status do solo.
-void desenharRodape() {
-  display.drawFastHLine(0, OLED_CONTEUDO_BASE, SCREEN_WIDTH, SSD1306_WHITE);
-
-  // indicador de página (bolinhas) centralizado
-  int totalPaginas = TOTAL_TELAS_OLED;
-  int larguraTotal = totalPaginas * 10;
-  int xInicial = (SCREEN_WIDTH - larguraTotal) / 2;
-  for (int i = 0; i < totalPaginas; i++) {
-    int cx = xInicial + i * 10 + 3;
-    int cy = 58;
-    if (i == telaSelecionada) {
-      display.fillCircle(cx, cy, 3, SSD1306_WHITE);
-    } else {
-      display.drawCircle(cx, cy, 3, SSD1306_WHITE);
-    }
-  }
-
-  display.setTextSize(1);
-  display.setCursor(0, 56);
-  display.print(modoAtual == VEGETACAO ? "V" : "F");
-
-  display.setCursor(SCREEN_WIDTH - 30, 56);
-  display.print(estadoSolo());
 }
 
 // Formata a temperatura no padrão brasileiro (vírgula em vez de ponto).
@@ -820,69 +824,100 @@ const char* estadoSolo() {
   return "Seco";
 }
 
-// ---------- tela principal: temperatura / umidade ----------
-// Mostra a temperatura em destaque (fonte grande) e a umidade abaixo, com um
-// indicador de "sensor vivo" (bolinha) que pisca a cada leitura válida do
-// sensor de ar — ver pulsoSensorAtivo em atualizarDHT().
+// ---------- tela principal: temperatura / umidade (interna + externa) ----------
+// Duas colunas simétricas lado a lado — Interna (esquerda) e Externa
+// (direita, sensor do GPIO16) — cada uma com seu indicador de "sensor vivo"
+// (bolinha) ao lado do nome, e uma linha final "Solo:" (sem divisória, ocupa
+// a largura toda) com o status do solo e o indicador de "sensor vivo" do
+// sensor de umidade do solo à esquerda.
+//
+// NOTA: os rótulos usam "T:"/"U:" (não "Temp:"/"Umid:") para caber dentro
+// da largura de cada coluna (~62px) sem estourar a linha divisória.
 void desenharConteudoPrincipal() {
+  const int xDivisor = 64;              // linha vertical central
+  const int xColunaExterna = xDivisor + 4;
+  // Linhas de 10px cada (label, temp, umidade) a partir de OLED_CONTEUDO_TOPO;
+  // o separador fica 1px depois do fim da linha de umidade, sem sobrepor texto.
+  const int yDivisorSala = OLED_CONTEUDO_TOPO + 29;
+
   display.setTextSize(1);
-  display.setCursor(0, OLED_CONTEUDO_TOPO);
-  display.print("Temperatura");
 
-  // indicador de "sensor vivo": pisca a cada leitura válida do DHT
-  int cx = SCREEN_WIDTH - 8;
-  int cy = OLED_CONTEUDO_TOPO + 3;
+  // --- Linha 1: nome de cada sensor + indicador de "sensor vivo" ---
+  int yLabel = OLED_CONTEUDO_TOPO;
+  int dotInternaX = 3;
+  int dotInternaY = yLabel + 3;
   if (pulsoSensorAtivo) {
-    display.fillCircle(cx, cy, 3, SSD1306_WHITE);
+    display.fillCircle(dotInternaX, dotInternaY, 3, SSD1306_WHITE);
   } else {
-    display.drawCircle(cx, cy, 3, SSD1306_WHITE);
+    display.drawCircle(dotInternaX, dotInternaY, 3, SSD1306_WHITE);
   }
+  display.setCursor(dotInternaX + 6, yLabel);
+  display.print("Interna");
 
-  display.setTextSize(2);
-  display.setCursor(0, OLED_CONTEUDO_TOPO + 10);
+  int dotExternaX = xColunaExterna + 3;
+  int dotExternaY = yLabel + 3;
+  if (pulsoSensorExternoAtivo) {
+    display.fillCircle(dotExternaX, dotExternaY, 3, SSD1306_WHITE);
+  } else {
+    display.drawCircle(dotExternaX, dotExternaY, 3, SSD1306_WHITE);
+  }
+  display.setCursor(dotExternaX + 6, yLabel);
+  display.print("Externa");
+
+  // --- Linha 2: temperatura ---
+  int yTemp = yLabel + 10;
+  display.setCursor(0, yTemp);
+  display.print("T: ");
   display.print(formatarTemperatura(tempAtual));
+  display.write(248); // símbolo de grau
   display.print("C");
 
-  display.setTextSize(1);
-  display.setCursor(0, OLED_CONTEUDO_BASE - 8);
-  display.print("Umidade: ");
+  display.setCursor(xColunaExterna, yTemp);
+  display.print("T: ");
+  display.print(formatarTemperatura(tempExterna));
+  display.write(248);
+  display.print("C");
+
+  // --- Linha 3: umidade ---
+  int yUmid = yTemp + 10;
+  display.setCursor(0, yUmid);
+  display.print("U: ");
   if (isnan(umidAtual)) {
     display.print("--");
   } else {
     display.print(umidAtual, 0);
   }
   display.print("%");
-}
 
-// ---------- tela secundária: modo de cultivo / tempo de luz ----------
-// Mostra o modo de cultivo, o estado atual da luz (com aviso "(Manual)" se
-// houver um override ativo) e, na última linha, ou o tempo restante do
-// ciclo automático, ou a contagem regressiva até o override expirar.
-void desenharConteudoSecundaria(const DateTime& now) {
-  display.setTextSize(1);
-
-  display.setCursor(0, OLED_CONTEUDO_TOPO);
-  display.print("Modo: ");
-  display.print(modoAtual == VEGETACAO ? "Vegetativo" : "Floracao");
-
-  display.setCursor(0, OLED_CONTEUDO_TOPO + 12);
-  display.print("Luz: ");
-  display.print(estadoReles[RELE_LUZ] ? "Ligada" : "Desligada");
-  if (modoControleLuz != LUZ_AUTOMATICA) {
-    display.print(" (Manual)");
-  }
-
-  display.setCursor(0, OLED_CONTEUDO_BASE - 8);
-  if (modoControleLuz != LUZ_AUTOMATICA) {
-    unsigned long restanteMs = (overrideLuzAte > millis()) ? (overrideLuzAte - millis()) : 0;
-    unsigned long restanteMin = restanteMs / 60000UL;
-    display.print("Auto em: ");
-    display.print(restanteMin);
-    display.print("min");
+  display.setCursor(xColunaExterna, yUmid);
+  display.print("U: ");
+  if (isnan(umidExterna)) {
+    display.print("--");
   } else {
-    display.print("Restante: ");
-    display.print(tempoRestante(now));
+    display.print(umidExterna, 0);
   }
+  display.print("%");
+
+  // --- Separador horizontal antes da linha final ---
+  display.drawFastHLine(0, yDivisorSala, SCREEN_WIDTH, SSD1306_WHITE);
+
+  // --- Última linha: status do solo, com o indicador de "sensor vivo" do
+  // sensor de umidade do solo à esquerda (sem divisória — ocupa a linha toda) ---
+  int ySala = yDivisorSala + 3;
+  int dotSoloX = 3;
+  int dotSoloY = ySala + 3;
+  if (pulsoSensorSoloAtivo) {
+    display.fillCircle(dotSoloX, dotSoloY, 3, SSD1306_WHITE);
+  } else {
+    display.drawCircle(dotSoloX, dotSoloY, 3, SSD1306_WHITE);
+  }
+  display.setCursor(dotSoloX + 6, ySala);
+  display.print("Solo: ");
+  display.print(estadoSolo());
+
+  // --- Separador vertical entre as colunas: só até a linha de umidade,
+  // não desce até a linha do solo (que não é dividida) ---
+  display.drawFastVLine(xDivisor, OLED_CONTEUDO_TOPO - 1, yDivisorSala - (OLED_CONTEUDO_TOPO - 1), SSD1306_WHITE);
 }
 
 // ---------- tela de configuração: menu interativo dos relés ----------
@@ -895,8 +930,7 @@ int itemIndexParaRele(int indiceItem) {
   return indiceItem; // itens 2..7 == relés 2..7 (PRIMEIRO_RELE_MANUAL == 2)
 }
 
-// Texto curto do estado do override de luz, usado tanto aqui quanto na
-// TELA_SECUNDARIA.
+// Texto curto do estado do override de luz, usado no menu de configuração.
 const char* textoModoControleLuz() {
   switch (modoControleLuz) {
     case LUZ_MANUAL_LIGADA: return "ON";
@@ -906,12 +940,43 @@ const char* textoModoControleLuz() {
   }
 }
 
+// Cabeçalho de tabela: "Dispositivos" (nomes, coluna da esquerda) e
+// "Status" (valor/estado atual de cada um, coluna da direita). Não são
+// abas/telas diferentes — é só a legenda das duas colunas da lista abaixo.
+// Reaproveitado no menu de confirmação (com a seta) e no topo da lista de
+// dispositivos (sem seta, já que ela desceu pra dentro da lista).
+// Sem linha horizontal no topo (ficaria colada na linha do cabeçalho
+// principal, logo acima) — só a linha horizontal de baixo (de ponta a
+// ponta da tela) e a divisória central entre as duas colunas.
+const int OLED_CABECALHO_TABELA_ALTURA = 10;
+const int OLED_CABECALHO_TABELA_DIVISOR_X = 82;
+
+void desenharCabecalhoTabela(bool mostrarSeta) {
+  const int yTopo = OLED_CONTEUDO_TOPO;
+  const int yBase = yTopo + OLED_CABECALHO_TABELA_ALTURA;
+
+  display.drawFastHLine(0, yBase, SCREEN_WIDTH, SSD1306_WHITE);
+  display.drawFastVLine(OLED_CABECALHO_TABELA_DIVISOR_X, yTopo, yBase - yTopo, SSD1306_WHITE);
+
+  display.setCursor(2, yTopo + 1);
+  display.print(mostrarSeta ? ">Dispositivos" : " Dispositivos");
+
+  display.setCursor(OLED_CABECALHO_TABELA_DIVISOR_X + 3, yTopo + 1);
+  display.print(" Status");
+}
+
 // Lista rolável com 8 itens totais (Modo Cultivo, Luz Manual, relés 2-7),
 // mostrando só "visiveis" por vez, com a janela sempre centralizada no item
-// selecionado (releSelecionadoControle) e travada nas bordas da lista.
+// selecionado (releSelecionadoControle). A seta já chega nesta tela
+// posicionada no primeiro item (ver selecionarTelaOLED). "Dispositivos" e
+// "Status" no topo são só os cabeçalhos das duas colunas (nome do
+// dispositivo / valor atual dele) — não são telas diferentes.
 void desenharConteudoConfiguracao() {
+  desenharCabecalhoTabela(false);
+
   const int totalItens = 8; // modo de cultivo + luz manual + 6 relés manuais
   const int visiveis = 4;
+  const int yListaTopo = OLED_CONTEUDO_TOPO + OLED_CABECALHO_TABELA_ALTURA + 2;
 
   int indiceAtual;
   if (releSelecionadoControle == CONTROLE_MODO_CULTIVO) {
@@ -931,7 +996,7 @@ void desenharConteudoConfiguracao() {
   for (int linha = 0; linha < visiveis && (inicio + linha) < totalItens; linha++) {
     int idx = inicio + linha;
     int releIdx = itemIndexParaRele(idx);
-    int y = OLED_CONTEUDO_TOPO + linha * 8;
+    int y = yListaTopo + linha * 8;
 
     display.setCursor(0, y);
     display.print(idx == indiceAtual ? ">" : " ");
@@ -954,127 +1019,158 @@ void desenharConteudoConfiguracao() {
 
 // ---------- tela de menu (confirmação p/ abrir a configuração) ----------
 // Tela intermediária mostrada quando a navegação chega na TELA_CONFIGURACAO
-// (única tela "interativa" — ver telaInterativa()): exige pressão longa
-// antes de entrar de fato, pra evitar entrar sem querer com um clique curto.
+// (única tela "interativa" — ver telaInterativa()). Mostra o mesmo
+// cabeçalho de tabela "Dispositivos"/"Status" que vai aparecer na lista,
+// como prévia, com a instrução para segurar o botão e abrir de fato.
 void desenharMenuOLED() {
   display.setTextSize(1);
-  display.setCursor(14, OLED_CONTEUDO_TOPO + 8);
-  display.print("Configuracoes");
-  display.setCursor(4, OLED_CONTEUDO_TOPO + 22);
-  display.print("Segure p/ abrir");
+
+  desenharCabecalhoTabela(true);
+
+  const int yCaixaBase = OLED_CONTEUDO_TOPO + OLED_CABECALHO_TABELA_ALTURA;
+
+  // Instrução, centralizada, abaixo da caixa
+  const char* linha1 = "Segure";
+  int16_t x1, y1;
+  uint16_t w, h;
+  display.getTextBounds(linha1, 0, 0, &x1, &y1, &w, &h);
+  display.setCursor((SCREEN_WIDTH - (int)w) / 2, yCaixaBase + 12);
+  display.print(linha1);
+
+  const char* linha2 = "Para Abrir.";
+  display.getTextBounds(linha2, 0, 0, &x1, &y1, &w, &h);
+  display.setCursor((SCREEN_WIDTH - (int)w) / 2, yCaixaBase + 24);
+  display.print(linha2);
 }
 
 // ---------- mensagem temporária ----------
-// Centraliza o texto tanto na horizontal quanto na vertical, mas só dentro
-// da área de conteúdo (entre cabeçalho e rodapé), calculando a largura real
-// do texto via getTextBounds() para não depender de contagem de caracteres.
+// Centraliza o texto tanto na horizontal quanto na vertical, usando toda a
+// área abaixo do cabeçalho (não sobra mais rodapé reservando espaço),
+// calculando a largura real do texto via getTextBounds() para não depender
+// de contagem de caracteres.
 void desenharMensagem() {
   display.setTextSize(1);
   int16_t x1, y1;
   uint16_t w, h;
   display.getTextBounds(linha1Mensagem, 0, 0, &x1, &y1, &w, &h);
-  int centroY = OLED_CONTEUDO_TOPO + ((OLED_CONTEUDO_BASE - OLED_CONTEUDO_TOPO) - (int)h) / 2;
+  int centroY = OLED_CONTEUDO_TOPO + ((SCREEN_HEIGHT - OLED_CONTEUDO_TOPO) - (int)h) / 2;
   display.setCursor((SCREEN_WIDTH - (int)w) / 2, centroY);
   display.print(linha1Mensagem);
 }
 
-// ---------- tela de descanso: sol / lua (animados) ----------
-// Estado ocioso padrão do display: NÃO usa o cabeçalho/rodapé comuns — tem
-// seu próprio cabeçalho ("GreenGrow") e ocupa a tela cheia com uma animação
-// vetorial (sem bitmap) que troca sozinha entre sol/lua conforme o relé de
-// luz (RELE_LUZ). Tudo é desenhado só na faixa azul, abaixo da costura, pra
-// não conflitar com a faixa amarela do painel físico.
+// ---------- tela de descanso: dados + sol/lua (animados) ----------
+// Estado ocioso PADRÃO do display — mas agora, ao contrário da versão
+// anterior (que era só uma animação em tela cheia), usa o MESMO cabeçalho
+// compartilhado das outras telas (título, hora, barras de conexão, pulso do
+// sensor) e mostra os dados essenciais de uma vez: temperatura, umidade,
+// modo de cultivo e status do solo à esquerda; o ícone de sol/lua e o tempo
+// restante do ciclo de luz à direita. Não tem rodapé (sem indicador de
+// página), já que não faz parte do ciclo de navegação por botão.
+//
+// NOTA DE FONTE: o símbolo de grau (°) usa o caractere 248 da tabela
+// estendida da fonte padrão do Adafruit_GFX. Acentos (ç, ã, ú etc.) NÃO são
+// usados em nenhum texto do display — a fonte padrão não tem esses glifos
+// (viram lixo na tela) — por isso "Vegetativo"/"Floracao" seguem sem acento,
+// no mesmo padrão do restante do código.
 
-// Centro vertical da área de animação: apenas a faixa azul, abaixo da costura
-const int OLED_DESCANSO_CENTRO_Y = OLED_ALTURA_CABECALHO + (SCREEN_HEIGHT - OLED_ALTURA_CABECALHO) / 2;
+// Posição do ícone de sol/lua, na coluna direita, ao lado dos dados
+const int OLED_DESCANSO_ICONE_CX = 104;
+const int OLED_DESCANSO_ICONE_CY = 34;
 
-void desenharCabecalhoDescanso() {
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-
-  int16_t x1, y1;
-  uint16_t w, h;
-  display.getTextBounds("GreenGrow", 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - (int)w) / 2, (OLED_ALTURA_CABECALHO - (int)h) / 2);
-  display.print("GreenGrow");
-
-  // Separador exatamente na costura entre a faixa amarela e a azul
-  display.drawFastHLine(0, OLED_ALTURA_CABECALHO - 1, SCREEN_WIDTH, SSD1306_WHITE);
-}
-
-// Desenhado quando a luz interna está LIGADA. Usa millis()/1000.0 como base
-// de tempo para animar: núcleo "respirando" (pulsando de tamanho) e 8 raios
-// girando lentamente com comprimento variável — tudo calculado a cada
-// quadro, sem nenhum estado guardado entre chamadas.
-void desenharSol() {
-  int cx = SCREEN_WIDTH / 2;
-  int cy = OLED_DESCANSO_CENTRO_Y;
-  int r = 9;
+// Desenhado quando a luz interna está LIGADA. Núcleo "respirando" (pulsando
+// de tamanho) e 8 raios girando lentamente com comprimento variável — tudo
+// calculado a cada quadro, sem nenhum estado guardado entre chamadas.
+// Escala compacta (cabe ao lado da coluna de dados, sem invadir o cabeçalho).
+void desenharSol(int cx, int cy) {
+  int r = 6;
 
   float t = millis() / 1000.0;
 
-  // "respiração": o núcleo do sol pulsa suavemente de tamanho
   float pulso = (sin(t * 2.0) + 1.0) / 2.0; // 0..1
   int raioNucleo = r + (int)(pulso * 2.0);
 
   display.fillCircle(cx, cy, raioNucleo, SSD1306_WHITE);
 
-  // raios giram lentamente ao redor do sol e alternam de comprimento
   float rotacao = t * 0.9;
   for (int i = 0; i < 8; i++) {
     float ang = rotacao + i * (PI / 4.0);
     float variacao = (sin(t * 3.0 + i) + 1.0) / 2.0; // 0..1, defasado por raio
-    int comprimento = 5 + (int)(variacao * 3.0);
+    int comprimento = 2 + (int)(variacao * 3.0);
 
-    int x1 = cx + cos(ang) * (raioNucleo + 3);
-    int y1 = cy + sin(ang) * (raioNucleo + 3);
-    int x2 = cx + cos(ang) * (raioNucleo + 3 + comprimento);
-    int y2 = cy + sin(ang) * (raioNucleo + 3 + comprimento);
+    int x1 = cx + cos(ang) * (raioNucleo + 2);
+    int y1 = cy + sin(ang) * (raioNucleo + 2);
+    int x2 = cx + cos(ang) * (raioNucleo + 2 + comprimento);
+    int y2 = cy + sin(ang) * (raioNucleo + 2 + comprimento);
     display.drawLine(x1, y1, x2, y2, SSD1306_WHITE);
   }
 }
 
 // Desenhado quando a luz interna está DESLIGADA. Lua com leve flutuação
-// vertical (efeito "boiando") e 6 estrelas que piscam cada uma em seu
-// próprio período (lista fixa "estrelas[]" com posição e velocidade).
-void desenharLua() {
-  int cx = SCREEN_WIDTH / 2;
-  int cy = OLED_DESCANSO_CENTRO_Y;
-  int r = 13;
+// vertical (efeito "boiando") — versão compacta, sem estrelas (não sobra
+// espaço ao lado da coluna de dados para elas ficarem legíveis).
+void desenharLua(int cx, int cy) {
+  int r = 9;
 
   float t = millis() / 1000.0;
-
-  // leve flutuação vertical da lua (efeito "boiando")
-  int deslocY = (int)(sin(t * 0.8) * 2.0);
+  int deslocY = (int)(sin(t * 0.8) * 1.5);
 
   display.fillCircle(cx, cy + deslocY, r, SSD1306_WHITE);
-  display.fillCircle(cx + 8, cy - 4 + deslocY, r - 3, SSD1306_BLACK);
-
-  // estrelas cintilantes: cada uma pisca em um ciclo próprio, todas dentro da faixa azul
-  struct Estrela { int x; int y; unsigned long periodo; };
-  static const Estrela estrelas[6] = {
-    {14, 22, 900}, {112, 20, 1200}, {10, 58, 1000},
-    {116, 55, 750}, {60, 18, 1350}, {96, 60, 1000}
-  };
-
-  for (int i = 0; i < 6; i++) {
-    unsigned long fase = millis() % estrelas[i].periodo;
-    if (fase < estrelas[i].periodo / 2) {
-      display.drawPixel(estrelas[i].x, estrelas[i].y, SSD1306_WHITE);
-    }
-  }
+  display.fillCircle(cx + 5, cy - 3 + deslocY, r - 3, SSD1306_BLACK);
 }
 
-// Ponto de entrada da tela de descanso: desenha o cabeçalho próprio e decide
-// entre sol/lua com base no estado real do relé de luz.
-void desenharTelaDescanso() {
-  desenharCabecalhoDescanso();
+// Ponto de entrada da tela de descanso: cabeçalho compartilhado + coluna de
+// dados (temperatura, umidade, modo, solo) + ícone sol/lua com o tempo
+// restante do ciclo de luz embaixo dele.
+void desenharTelaDescanso(const DateTime& now) {
+  desenharCabecalho(now, "Cultivo");
 
-  if (estadoReles[RELE_LUZ]) {
-    desenharSol();
+  // --- Coluna de dados (esquerda) ---
+  const int xDados = 0;
+  const int espacoLinha = 11;
+  int y = OLED_CONTEUDO_TOPO;
+
+  display.setTextSize(1);
+
+  display.setCursor(xDados, y);
+  display.print("T: ");
+  display.print(formatarTemperatura(tempAtual));
+  display.write(248); // símbolo de grau
+  display.print("C");
+  y += espacoLinha;
+
+  display.setCursor(xDados, y);
+  display.print("U: ");
+  if (isnan(umidAtual)) {
+    display.print("--");
   } else {
-    desenharLua();
+    display.print(umidAtual, 0);
   }
+  display.print("%");
+  y += espacoLinha;
+
+  display.setCursor(xDados, y);
+  display.print("M: ");
+  display.print(modoAtual == VEGETACAO ? "Vegetativo" : "Floracao");
+  y += espacoLinha;
+
+  display.setCursor(xDados, y);
+  display.print("S: ");
+  display.print(estadoSolo());
+
+  // --- Ícone (direita): sol ou lua, conforme o estado real do relé de luz ---
+  if (estadoReles[RELE_LUZ]) {
+    desenharSol(OLED_DESCANSO_ICONE_CX, OLED_DESCANSO_ICONE_CY);
+  } else {
+    desenharLua(OLED_DESCANSO_ICONE_CX, OLED_DESCANSO_ICONE_CY);
+  }
+
+  // --- Tempo restante até a próxima troca de estado da luz, sob o ícone ---
+  String restante = tempoRestante(now);
+  int16_t rx1, ry1;
+  uint16_t rw, rh;
+  display.getTextBounds(restante, 0, 0, &rx1, &ry1, &rw, &rh);
+  display.setCursor(OLED_DESCANSO_ICONE_CX - (int)rw / 2, 54);
+  display.print(restante);
 }
 
 // ---------- renderização geral ----------
@@ -1090,13 +1186,24 @@ void renderizarOLED(const DateTime& now) {
   display.clearDisplay();
 
   if (estadoOLED == OLED_DESCANSO) {
-    desenharTelaDescanso();
+    desenharTelaDescanso(now);
     display.display();
     return;
   }
 
-  desenharCabecalho(now);
-  desenharRodape();
+  // Cada tela pode ter seu próprio título no cabeçalho. O rodapé padrão
+  // antigo (pontos de página + modo + solo) não existe mais em nenhuma tela
+  // do design atual — TELA_PRINCIPAL tem sua própria linha "Solo:",
+  // TELA_CONFIGURACAO usa a tabela no topo, e mensagens temporárias (ex:
+  // "Porta Liberada") ficam centralizadas sem nada embaixo.
+  const char* titulo = "CULTIVO";
+  if (estadoOLED == OLED_EXIBINDO && telaSelecionada == TELA_PRINCIPAL) {
+    titulo = "Informacoes";
+  } else if (telaSelecionada == TELA_CONFIGURACAO) {
+    titulo = "Configuracao";
+  }
+
+  desenharCabecalho(now, titulo);
 
   switch (estadoOLED) {
     case OLED_MENSAGEM:
@@ -1109,9 +1216,6 @@ void renderizarOLED(const DateTime& now) {
       switch (telaSelecionada) {
         case TELA_PRINCIPAL:
           desenharConteudoPrincipal();
-          break;
-        case TELA_SECUNDARIA:
-          desenharConteudoSecundaria(now);
           break;
         case TELA_CONFIGURACAO:
           desenharConteudoConfiguracao();
@@ -1633,6 +1737,8 @@ void atualizarDHT() {
 
   // Pulso visual: pisca o indicador de "sensor vivo" a cada leitura válida,
   // mesmo quando o valor não mudou o suficiente para atualizar temp/umidade.
+  // Fica ao lado de "Interna" na TELA_PRINCIPAL — só força redesenho quando
+  // essa tela está de fato aberta.
   if (!isnan(novaTemp) && !isnan(novaUmid)) {
     pulsoSensorAtivo = true;
     pulsoSensorAte = millis() + DURACAO_PULSO_SENSOR_MS;
@@ -1647,6 +1753,52 @@ void atualizarDHT() {
 void atualizarPulsoSensor() {
   if (pulsoSensorAtivo && millis() >= pulsoSensorAte) {
     pulsoSensorAtivo = false;
+    if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
+      atualizarOLED = true;
+    }
+  }
+}
+
+// Lê o sensor externo (fora da estufa, GPIO16). Independente do sensor
+// interno — mesmo critério de "só aceita se mudou o suficiente" e o mesmo
+// esquema de pulso visual (bolinha ao lado de "Externa"), mas com seu
+// próprio indicador (pulsoSensorExternoAtivo), já que é um sensor separado.
+void atualizarDHTExterno() {
+  if (millis() - ultimoDHTExterno < INTERVALO_DHT_EXTERNO_MS) return;
+  ultimoDHTExterno = millis();
+
+  float novaTemp = dhtExterno.readTemperature();
+  float novaUmid = dhtExterno.readHumidity();
+  bool mudou = false;
+
+  if (!isnan(novaTemp) && (isnan(tempExterna) || fabs(tempExterna - novaTemp) >= 0.1f)) {
+    tempExterna = novaTemp;
+    mudou = true;
+  }
+
+  if (!isnan(novaUmid) && (isnan(umidExterna) || fabs(umidExterna - novaUmid) >= 1.0f)) {
+    umidExterna = novaUmid;
+    mudou = true;
+  }
+
+  if (mudou && telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
+    atualizarOLED = true;
+  }
+
+  if (!isnan(novaTemp) && !isnan(novaUmid)) {
+    pulsoSensorExternoAtivo = true;
+    pulsoSensorExternoAte = millis() + DURACAO_PULSO_SENSOR_MS;
+    if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
+      atualizarOLED = true;
+    }
+  }
+}
+
+// Apaga o indicador de "sensor vivo" externo quando o tempo do pulso expira
+// (chamada a cada loop(), complementa a ativação feita em atualizarDHTExterno()).
+void atualizarPulsoSensorExterno() {
+  if (pulsoSensorExternoAtivo && millis() >= pulsoSensorExternoAte) {
+    pulsoSensorExternoAtivo = false;
     if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
       atualizarOLED = true;
     }
@@ -1683,6 +1835,25 @@ void atualizarSolo() {
     Serial.print(" | Umidade: ");
     Serial.print(soloPercentual);
     Serial.println("%");
+  }
+
+  // Pulso visual: pisca a cada ciclo de leitura, mesmo sem mudança de valor
+  // (mesmo padrão dos sensores de temperatura/umidade internos e externos).
+  pulsoSensorSoloAtivo = true;
+  pulsoSensorSoloAte = millis() + DURACAO_PULSO_SENSOR_MS;
+  if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
+    atualizarOLED = true;
+  }
+}
+
+// Apaga o indicador de "sensor vivo" do solo quando o tempo do pulso expira
+// (chamada a cada loop(), complementa a ativação feita em atualizarSolo()).
+void atualizarPulsoSensorSolo() {
+  if (pulsoSensorSoloAtivo && millis() >= pulsoSensorSoloAte) {
+    pulsoSensorSoloAtivo = false;
+    if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
+      atualizarOLED = true;
+    }
   }
 }
 
@@ -2014,6 +2185,7 @@ void setup() {
     sht4.setHeater(SHT4X_NO_HEATER);
   }
 #endif
+  dhtExterno.begin(); // sensor externo (fora da estufa) — existe nos dois modos
 
   rtcDisponivel = rtc.begin();
   Serial.print("RTC detectado: ");
@@ -2076,8 +2248,11 @@ void loop() {
   atualizarBotaoAcesso();      // lê o botão físico de liberar acesso
   atualizarTimeoutOLED();      // volta pra tela de descanso por inatividade
   atualizarDHT();              // lê temperatura/umidade do ar (a cada 2s)
-  atualizarPulsoSensor();      // apaga o indicador de "sensor vivo"
+  atualizarDHTExterno();       // lê temperatura/umidade externas (fora da estufa)
+  atualizarPulsoSensor();      // apaga o indicador de "sensor vivo" (interno)
+  atualizarPulsoSensorExterno(); // apaga o indicador de "sensor vivo" (externo)
   atualizarSolo();             // lê umidade do solo (a cada 1s, com média)
+  atualizarPulsoSensorSolo();  // apaga o indicador de "sensor vivo" (solo)
   atualizarSincronizacaoHora(); // tenta NTP periodicamente até sincronizar
   atualizarConexaoWiFi();      // reconecta WiFi com backoff se cair
   atualizarBlynk();            // conecta/roda/publica no Blynk
