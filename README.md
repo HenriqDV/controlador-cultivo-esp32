@@ -1,6 +1,8 @@
 # 🌿 GrowController ESP32 — Automação para Cultivo Indoor
 
-Sistema de automação para estufa de cultivo indoor baseado em **ESP32-S3**, com controle de iluminação, ventilação, monitoramento de sensores, interface **OLED SSD1306** com telas dedicadas, acesso remoto via **Blynk**, persistência de estado entre quedas de energia e sincronização de horário via **NTP** com fallback para RTC.
+Sistema de automação para estufa de cultivo indoor baseado em **ESP32-S3**, com controle de iluminação, ventilação, monitoramento de sensores (internos e externos), interface **OLED SSD1306** com telas dedicadas, acesso remoto via **Blynk**, persistência de estado entre quedas de energia e sincronização de horário via **NTP** com fallback para RTC.
+
+> No firmware, o projeto é identificado internamente como **"Cultivo"** (nome do template Blynk e título exibido no cabeçalho do OLED).
 
 ---
 
@@ -9,20 +11,21 @@ Sistema de automação para estufa de cultivo indoor baseado em **ESP32-S3**, co
 - **Controle automático de iluminação** com base no modo de cultivo e horário do dia
 - **Override manual da luz** (Auto / Ligada / Desligada) que **não desabilita** o fotoperíodo — o timer continua contando por baixo e retoma sozinho após 30 minutos
 - **Dois modos de cultivo**: Vegetação (18h luz) e Floração (12h luz)
-- **Monitoramento ambiental** com sensor de temperatura e umidade (SHT40 ou DHT22, conforme o modo de compilação)
+- **Monitoramento ambiental interno** com sensor de temperatura e umidade do ar dentro da estufa (SHT40 ou DHT22, conforme o modo de compilação)
+- **Monitoramento ambiental externo** com sensor de temperatura e umidade independente, do lado de fora da estufa (DHT11 no hardware físico / DHT22 na simulação Wokwi), sempre presente nos dois modos de compilação
 - **Sensor de umidade do solo** analógico com calibração por faixa de leitura bruta e média de múltiplas amostras (redução de ruído do ADC)
 - **Controle de 8 relés** para luz, acesso, exaustores, ventiladores e periféricos
 - **Trava eletrônica de acesso** com liberação temporizada via botão físico ou app remoto
-- **Display OLED SSD1306 (128x64)** com 4 telas — incluindo uma tela de descanso animada (sol/lua) — e navegação por botão físico
+- **Display OLED SSD1306 (128x64)** com tela de descanso animada (sol/lua), tela de informações e menu de configuração interativo, navegáveis por botão físico
 - **Indicador de conexão** no cabeçalho em formato de barras, cada uma com significado fixo (WiFi / Blynk configurado / Blynk conectado)
-- **Indicador de "sensor vivo"**: pisca a cada leitura válida do sensor de ar, mesmo sem mudança de valor
+- **Indicadores de "sensor vivo"**: piscam a cada leitura válida de cada sensor (interno, externo e solo), mesmo sem mudança de valor
 - **Persistência entre quedas de energia**: estado dos relés manuais e modo de cultivo sobrevivem a reinícios, gravados na NVRAM com bateria do RTC DS1307
 - **LED NeoPixel** de status com animações por estado do sistema (interno no hardware físico, externo na simulação)
 - **Buzzer** para feedback sonoro em ações
 - **Controle remoto via Blynk** (IoT): telemetria, comandos e navegação de menu
 - **Sincronização de hora via NTP** com múltiplos servidores de fallback e reserva no RTC DS1307
 - **Reconexão automática** de Wi-Fi e Blynk com estratégia de backoff
-- **Modo de simulação Wokwi** para testes sem hardware físico, com troca automática de sensor, LED e pinagem
+- **Modo de simulação Wokwi** para testes sem hardware físico, com troca automática de sensor interno, LED e pinagem
 
 ---
 
@@ -42,7 +45,7 @@ Os dispositivos SHT40, RTC DS1307 e display OLED compartilham o mesmo barramento
 
 ---
 
-### Sensor de Temperatura e Umidade
+### Sensor de Temperatura e Umidade (Interno)
 
 **Hardware real → SHT40** (padrão quando `WOKWI_SIMULATION 0`)
 
@@ -62,6 +65,23 @@ Os dispositivos SHT40, RTC DS1307 e display OLED compartilham o mesmo barramento
 | DATA | 15 |
 
 > Resistor de pull-up de 10kΩ entre DATA e VCC é recomendado para o DHT22.
+
+---
+
+### Sensor de Temperatura e Umidade (Externo)
+
+Sensor independente, instalado **fora da estufa**, usado para comparar as condições internas com o ambiente externo. Ao contrário do sensor interno, este **não muda de tipo entre os dois modos de compilação** — só o pino GPIO é fixo (16) e o tipo de sensor muda por padrão:
+
+- **Hardware físico:** DHT11
+- **Simulação Wokwi:** DHT22 (o Wokwi não tem um componente DHT11 dedicado, então a simulação usa o mesmo modelo do sensor interno)
+
+| Pino DHT (externo) | Pino ESP32-S3 |
+|---|---|
+| VCC | 3V3 |
+| GND | GND |
+| DATA | 16 |
+
+> Resistor de pull-up de 10kΩ entre DATA e VCC é recomendado.
 
 ---
 
@@ -173,7 +193,7 @@ Se estiver usando um NeoPixel externo no hardware físico em vez do LED embutido
 - **Luz ligada:** 19h00 até 07h00 (12h de luz / 12h de escuro)
 - Ideal para indução e manutenção da fase de floração
 
-O modo pode ser alternado pelo botão físico (menu do OLED), pelo app Blynk (V10) ou diretamente na tela de configuração.
+O modo pode ser alternado pelo botão físico (item "Modo Cultivo" no menu de configuração), pelo app Blynk (V10) ou remotamente simulando cliques no menu (V18/V19).
 
 ### Override manual da luz
 
@@ -186,25 +206,27 @@ Auto → Ligada → Desligada → Auto → ...
 Pontos importantes sobre esse recurso:
 
 - O cálculo do fotoperíodo **nunca para** — mesmo em modo manual, o sistema continua calculando se a luz "deveria" estar ligada pelo horário; o override apenas sobrepõe a saída final do relé.
-- Por segurança, o override **expira sozinho após 30 minutos**, retomando o controle automático sem qualquer ação do usuário — evita esquecer a luz travada manualmente e comprometer a floração por vazamento de luz.
-- A tela secundária do OLED mostra "(Manual)" ao lado do estado da luz e um contador regressivo ("Auto em: Xmin") enquanto o override estiver ativo.
+- Por segurança, o override **expira sozinho após 30 minutos**, retomando o controle automático sem qualquer ação do usuário — evita esquecer a luz travada manualmente e comprometer a floração por vazamento de luz. A expiração é silenciosa (não há contador regressivo na tela); o item volta a mostrar "Auto" no menu assim que isso acontece.
+- O item "Luz Manual" no menu de configuração mostra o estado atual como texto: `Auto`, `ON` ou `OFF`.
+- Não existe pino virtual dedicado no Blynk para este override — hoje ele só é acessível pelo menu local do OLED.
 
 ---
 
 ## Interface OLED (SSD1306 128x64)
 
-O display é ativado por pressão curta no botão do menu e volta automaticamente para a tela de descanso após **15 segundos** de inatividade.
+O display é ativado por clique curto no botão do menu e volta automaticamente para a tela de descanso após **15 segundos** de inatividade (ou logo após uma mensagem temporária expirar).
 
-### Telas disponíveis
+Todas as telas — **inclusive a de descanso** — compartilham o mesmo cabeçalho: título, relógio e indicador de conexão em barras, numa faixa de 16px no topo. Não existe mais um rodapé fixo padrão; cada tela desenha suas próprias informações inferiores.
 
-| Tela | Conteúdo |
+### Telas / estados disponíveis
+
+| Tela / Estado | Conteúdo |
 |---|---|
-| Descanso (padrão/ociosa) | Ilustração animada em tela cheia: sol (luz ligada) ou lua com estrelas cintilantes (luz desligada), com o nome "GreenGrow" no cabeçalho |
-| Principal | Temperatura e umidade do ar, com indicador de "sensor vivo" |
-| Secundária | Modo de cultivo, estado da luz (com aviso de override manual) e tempo restante do ciclo |
-| Configuração | Menu interativo rolável: Modo Cultivo, Luz Manual e os 6 relés manuais |
-
-Todas as telas (exceto a de descanso) compartilham um cabeçalho comum — nome do sistema, relógio e indicador de conexão — e um rodapé com indicador de página, modo de cultivo e status do solo.
+| **Descanso** (padrão/ociosa) | Cabeçalho compartilhado (título "Cultivo", hora, conexão) + coluna de dados à esquerda (temperatura e umidade internas, modo de cultivo, status do solo) + ícone animado de sol (luz ligada) ou lua (luz desligada) à direita, com o tempo restante do ciclo de luz logo abaixo |
+| **Informações** (tela principal) | Duas colunas lado a lado — Interna e Externa — cada uma com temperatura, umidade e um indicador de "sensor vivo" (bolinha que pisca a cada leitura); linha final "Solo:" com o status do solo e seu próprio indicador de "sensor vivo" |
+| **Configuração** (confirmação) | Tela intermediária com o cabeçalho de tabela "Dispositivos"/"Status" e a instrução "Segure Para Abrir" — exige pressão longa para entrar de fato na lista |
+| **Configuração** (lista) | Lista rolável com 8 itens: Modo Cultivo, Luz Manual e os 6 relés manuais, mostrando nome e estado atual de cada um, com janela de 4 itens visíveis centralizada na seleção |
+| **Mensagem temporária** | Texto centralizado (ex: "Modo: Floracao", "Porta Liberada"), fecha sozinha após um tempo definido e volta para a tela de descanso |
 
 ### Indicador de conexão (cabeçalho)
 
@@ -220,13 +242,14 @@ Isso permite diagnosticar exatamente em qual etapa a conexão travou (ex: 1ª e 
 
 ### Navegação por botão
 
-| Ação | Resultado |
-|---|---|
-| Clique curto (tela de descanso) | Acorda o display na Tela Principal |
-| Clique curto (exibindo) | Avança para a próxima tela |
-| Clique curto (menu Configuração) | Avança o item selecionado no menu |
-| Pressão longa (confirmação de menu) | Confirma entrada na tela de Configuração |
-| Pressão longa (tela Configuração) | Alterna estado do item selecionado |
+| Ação | Contexto | Resultado |
+|---|---|---|
+| Clique curto | Tela de descanso | Acorda o display direto na tela de Informações |
+| Clique curto | Tela de Informações | Avança para a tela de Configuração (pede confirmação) |
+| Clique curto | Tela de confirmação da Configuração | Pula a confirmação e volta para Informações |
+| Clique curto | Lista de dispositivos (Configuração já aberta) | Avança o item selecionado na lista |
+| Pressão longa | Tela de confirmação da Configuração | Abre a lista de dispositivos, já com a seta no primeiro item |
+| Pressão longa | Lista de dispositivos (Configuração já aberta) | Ativa/alterna o item atualmente selecionado |
 
 O mesmo fluxo pode ser acionado remotamente pelo Blynk (V18 = clique curto, V19 = clique longo).
 
@@ -264,14 +287,16 @@ O projeto utiliza **Blynk IoT** para monitoramento e controle remoto.
 
 | Virtual Pin | Dado |
 |---|---|
-| V1 | Umidade do ar (%) |
-| V2 | Temperatura (°C) |
+| V1 | Umidade do ar interna (%) |
+| V2 | Temperatura interna (°C) |
 | V4 | Umidade do solo (%) |
-| V5 | Estado da luz (0/1) |
+| V5 | Estado do relé de luz (0/1) |
 | V6 | Modo de cultivo (texto) |
-| V7 | Exaustores ativos (0/1) |
-| V8 | Timestamp atual |
-| V9 | Tempo restante do ciclo |
+| V7 | Exaustão ativa — relés 2 e 3 (0/1) |
+| V8 | Timestamp completo (string) |
+| V9 | Tempo restante do ciclo de luz |
+
+> Não há pinos virtuais dedicados para o sensor externo (GPIO16) — ele é exibido apenas na tela de Informações do OLED.
 
 ### Pinos virtuais — Controle (escrita no app)
 
@@ -279,9 +304,9 @@ O projeto utiliza **Blynk IoT** para monitoramento e controle remoto.
 |---|---|
 | V10 | Modo de cultivo (0=Vegetação, 1=Floração) |
 | V11–V16 | Relés 2 a 7 (0=OFF, 1=ON) |
-| V17 | Liberar acesso por 3 segundos |
-| V18 | Clique curto no menu do OLED |
-| V19 | Clique longo no menu do OLED |
+| V17 | Liberar acesso por 3 segundos (autozera) |
+| V18 | Clique curto no menu do OLED (autozera) |
+| V19 | Clique longo no menu do OLED (autozera) |
 
 > O override manual de luz (Auto/Ligada/Desligada) ainda não tem um pino virtual dedicado — hoje só é acessível pelo menu local do OLED.
 
@@ -314,7 +339,7 @@ Quando o NTP sincroniza com sucesso, o RTC é atualizado automaticamente.
 
 ## Reconexão Automática
 
-- **Wi-Fi:** tenta a cada 5 segundos no primeiro minuto, depois a cada 30 segundos
+- **Wi-Fi:** tenta a cada 5 segundos no primeiro minuto desconectado, depois a cada 30 segundos
 - **Blynk:** tenta a cada 5 segundos, somente quando Wi-Fi está ativo e a interface local não está em uso
 - **NTP:** retenta a cada 60 segundos até sincronizar, alternando entre servidores a cada tentativa
 
@@ -340,23 +365,26 @@ para:
 
 | Comportamento | Hardware real (`0`) | Simulação Wokwi (`1`) |
 |---|---|---|
-| Sensor de temp/umidade | SHT40 via I2C | DHT22 no pino 15 |
-| Biblioteca do sensor | `Adafruit_SHT4x` | `DHT.h` |
-| Inicialização do sensor | `sht4.begin()` | `dht.begin()` |
-| Leitura do sensor | `sht4.getEvent()` | `dht.readTemperature/Humidity()` |
+| Sensor de temp/umidade interno | SHT40 via I2C | DHT22 no pino 15 |
+| Biblioteca do sensor interno | `Adafruit_SHT4x` | `DHT.h` |
+| Inicialização do sensor interno | `sht4.begin()` | `dht.begin()` |
+| Leitura do sensor interno | `sht4.getEvent()` | `dht.readTemperature/Humidity()` |
+| Sensor de temp/umidade externo | DHT11 no pino 16 | DHT22 no pino 16 |
 | LED de status (NeoPixel) | Pino 48 (LED embutido) | Pino 4 (LED externo) |
 | Rede Wi-Fi | Precisa ser a rede real do usuário | `"Wokwi-GUEST"` (aberta, com internet real dentro do simulador) |
+
+> O sensor externo (GPIO16) usa a mesma classe `DHT` da biblioteca `DHT.h` nos dois modos — só o tipo do sensor (`DHT_EXT_TYPE`) muda automaticamente.
 
 ### O que pode ser testado na simulação
 
 - Navegação completa pelo menu do OLED (botão físico virtual ou via Blynk V18/V19)
-- Leitura e exibição de temperatura e umidade pelo DHT22
+- Leitura e exibição de temperatura e umidade interna (DHT22) e externa (DHT22)
 - Leitura analógica do solo (variando o potenciômetro)
 - Controle de relés pelo menu ou pelo app Blynk
 - Alternância entre modos Vegetação e Floração, e override manual de luz
 - Lógica de horário para controle automático da luz
 - Conexão Wi-Fi, NTP e Blynk (o Wokwi suporta Wi-Fi simulado com acesso real à internet)
-- Animação da tela de descanso (sol/lua) e indicador de sensor vivo
+- Animação da tela de descanso (sol/lua) e indicadores de sensor vivo (interno, externo e solo)
 
 ---
 
@@ -367,8 +395,8 @@ Instale as seguintes bibliotecas via Arduino Library Manager ou PlatformIO:
 - `Adafruit GFX Library`
 - `Adafruit SSD1306`
 - `RTClib` (Adafruit)
-- `Adafruit SHT4x` (+ dependências: `Adafruit BusIO`, `Adafruit Unified Sensor`)
-- `DHT sensor library` (Adafruit)
+- `Adafruit SHT4x` (+ dependências: `Adafruit BusIO`, `Adafruit Unified Sensor`) — só necessária no modo hardware físico
+- `DHT sensor library` (Adafruit) — usada pelo sensor interno em simulação e sempre pelo sensor externo
 - `Adafruit NeoPixel`
 - `Blynk` (BlynkSimpleEsp32)
 - `WiFi` (built-in ESP32)
@@ -400,37 +428,47 @@ const int SOLO_ADC_SECO = 4095;   // leitura bruta com o sensor seco (ver Serial
 const int SOLO_ADC_UMIDO = 2240;  // leitura bruta com o sensor em água
 ```
 
+Se os relés vierem invertidos ao ligar o sistema (acendendo quando deveriam estar desligados), ajuste também:
+
+```cpp
+#define RELE_ATIVO_EM_BAIXO true // troque para false se necessário
+```
+
 ---
 
 ## Estrutura do Código
 
 ```
 setup()
-├── Inicialização de pinos, relés (respeitando RELE_ATIVO_EM_BAIXO), botões
+├── Inicialização de pinos, relés (respeitando RELE_ATIVO_EM_BAIXO), buzzer e botões
+├── LED NeoPixel (pixel.begin)
 ├── Barramento I2C (Wire.begin)
-├── Display OLED, sensor de ar (SHT40 ou DHT22)
+├── Display OLED, sensor de ar interno (SHT40 ou DHT22) e sensor externo (DHT11/DHT22)
 ├── RTC: detecção + verificação do oscilador (isrunning) + ajuste de emergência
 ├── Restauração de relés/modo salvos na NVRAM (queda de energia anterior)
-├── Conexão Wi-Fi (com timeout)
+├── Conexão Wi-Fi (bloqueante, com timeout)
 ├── Sincronização NTP
 └── Configuração Blynk
 
 loop()
-├── atualizarLED()               — animações NeoPixel por estado
-├── atualizarBuzzer()            — desliga buzzer após tempo configurado
-├── atualizarAcesso()            — fecha trava após tempo de liberação
-├── atualizarMensagemTemporaria()— expira mensagens no OLED
-├── atualizarBotaoOLED()         — leitura, debounce e clique curto/longo do botão de menu
-├── atualizarBotaoAcesso()       — leitura e debounce do botão de acesso
-├── atualizarTimeoutOLED()       — volta para a tela de descanso por inatividade
-├── atualizarDHT()               — leitura do sensor de temp/umidade + indicador de sensor vivo
-├── atualizarPulsoSensor()       — apaga o indicador de sensor vivo
-├── atualizarSolo()              — leitura (com média) e calibração do sensor de solo
-├── atualizarSincronizacaoHora() — retry NTP periódico com múltiplos servidores
-├── atualizarConexaoWiFi()       — reconexão automática Wi-Fi com backoff
-├── atualizarBlynk()             — run, telemetria e estado Blynk
-├── controlarLuz(now)            — aplica fotoperíodo/override no relé de luz
-└── renderizarOLED(now)          — renderiza a tela ativa no display (só se houver mudança)
+├── atualizarLED()                — animações NeoPixel por estado
+├── atualizarBuzzer()             — desliga buzzer após tempo configurado
+├── atualizarAcesso()             — fecha trava após tempo de liberação
+├── atualizarMensagemTemporaria() — expira mensagens no OLED
+├── atualizarBotaoOLED()          — leitura, debounce e clique curto/longo do botão de menu
+├── atualizarBotaoAcesso()        — leitura e debounce do botão físico de liberar acesso
+├── atualizarTimeoutOLED()        — volta para a tela de descanso por inatividade
+├── atualizarDHT()                — leitura do sensor de temp/umidade interno + sensor vivo
+├── atualizarDHTExterno()         — leitura do sensor de temp/umidade externo + sensor vivo
+├── atualizarPulsoSensor()        — apaga o indicador de sensor vivo (interno)
+├── atualizarPulsoSensorExterno() — apaga o indicador de sensor vivo (externo)
+├── atualizarSolo()               — leitura (com média) e calibração do sensor de solo
+├── atualizarPulsoSensorSolo()    — apaga o indicador de sensor vivo (solo)
+├── atualizarSincronizacaoHora()  — retry NTP periódico com múltiplos servidores
+├── atualizarConexaoWiFi()        — reconexão automática Wi-Fi com backoff
+├── atualizarBlynk()              — conecta, roda (Blynk.run) e publica telemetria/estado
+├── controlarLuz(now)             — aplica fotoperíodo/override no relé de luz
+└── renderizarOLED(now)           — renderiza a tela ativa no display (só se houver mudança)
 ```
 
 ---
