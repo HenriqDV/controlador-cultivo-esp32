@@ -2,15 +2,15 @@
 
 Sistema de automação para cultivo indoor baseado em **ESP32-S3**, com controle de iluminação por fotoperíodo, exaustão/ventilação, trava de acesso, monitoramento ambiental (interno e externo) e umidade do solo, display **OLED SSD1306** local e **dashboard web embutido** — sem depender de nenhum serviço de terceiros para o controle remoto.
 
-> Este documento descreve a **versão atual (v2)** do projeto e resume as mudanças em relação à primeira versão (v1), publicada anteriormente como *GrowController ESP32*.
+> Este documento descreve a **versão atual (v1)** do projeto e resume as mudanças em relação à primeira versão (v0), publicada anteriormente como *GrowController ESP32*.
 
 ---
 
-## 📋 O que mudou da v1 para a v2
+## 📋 O que mudou da v0 para a v1
 
-A v2 é uma reformulação significativa da automação original. A mudança mais visível é a **saída do Blynk como camada de controle remoto**, substituído por um **dashboard web hospedado no próprio ESP32**. Além disso, o projeto passou a ser estruturado como um projeto **PlatformIO + Wokwi**, em vez de um sketch único `.ino`.
+A v1 é uma reformulação significativa da automação original. A mudança mais visível é a **saída do Blynk como camada de controle remoto**, substituído por um **dashboard web hospedado no próprio ESP32**. Além disso, o projeto passou a ser estruturado como um projeto **PlatformIO + Wokwi**, em vez de um sketch único `.ino`.
 
-| Área | v1 (GrowController) | v2 (Cultivo) |
+| Área | v0 (GrowController) | v1 (Cultivo) |
 |---|---|---|
 | Estrutura do projeto | Sketch único `.ino` (Arduino IDE) | Projeto **PlatformIO** (`platformio.ini`, `wokwi.toml`, `diagram.json`, `src/main.cpp`) |
 | Controle remoto | App **Blynk** (nuvem de terceiros) | **Dashboard web local**, servido pelo próprio ESP32 (HTML/CSS/JS embutidos) |
@@ -177,7 +177,7 @@ O RTC DS1307 possui 56 bytes de RAM com bateria de backup. Os 8 primeiros são u
 | 3 | Modo do override de luz (Auto/Ligada/Desligada) |
 | 4–7 | Horário absoluto (unixtime) em que o override de luz expira |
 
-Diferente da v1, o **override manual da luz agora sobrevive a um reinício** (desde que ainda não tenha expirado, calculado em horário absoluto e não em `millis()`). A luz em si e a trava de acesso **nunca são restauradas diretamente**, por segurança — a luz é sempre recalculada pelo fotoperíodo/override, e a trava nunca volta ligada.
+Diferente da v0, o **override manual da luz agora sobrevive a um reinício** (desde que ainda não tenha expirado, calculado em horário absoluto e não em `millis()`). A luz em si e a trava de acesso **nunca são restauradas diretamente**, por segurança — a luz é sempre recalculada pelo fotoperíodo/override, e a trava nunca volta ligada.
 
 ---
 
@@ -195,7 +195,7 @@ O OLED exibe o progresso da atualização e o sistema reinicia sozinho ao conclu
 
 ## Sincronização de Hora
 
-Ordem de prioridade (invertida em relação à v1):
+Ordem de prioridade (invertida em relação à v0):
 
 1. **Relógio interno do ESP32**, uma vez sincronizado via NTP nesta sessão — continua contando mesmo se o WiFi cair depois
 2. **RTC DS1307** físico, usado enquanto o NTP ainda não sincronizou nesta sessão
