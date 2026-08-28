@@ -8,45 +8,38 @@
 //  exaustores/ventiladores, trava de acesso (porta) e monitora temperatura,
 //  umidade do ar e umidade do solo. Interface local via display OLED SSD1306
 //  (128x64, com faixa amarela de 16px no topo) + botão físico; interface
-//  remota via um dashboard web embutido (servidor HTTP próprio, sem depender
-//  de internet — só da rede WiFi local. Ver seção "WEBSERVER LOCAL
-//  (dashboard)" mais abaixo no arquivo). O estado dos relés e o modo de
-//  cultivo sobrevivem a quedas de energia, gravados na NVRAM com bateria do
-//  RTC DS1307.
+//  remota via o dashboard web da Hostinger (ver pasta hostinger/) — NÃO
+//  existe mais servidor HTTP embutido no ESP32 (ver "CONTROLE REMOTO" abaixo
+//  pra entender por quê). O estado dos relés e o modo de cultivo sobrevivem
+//  a quedas de energia, gravados na NVRAM com bateria do RTC DS1307.
 //
 //  BIBLIOTECAS NECESSÁRIAS (Library Manager da Arduino IDE)
 //  -----------------------------------------------------------
 //    Adafruit GFX Library, Adafruit SSD1306, RTClib, DHT sensor library,
-//    Adafruit NeoPixel, e o dashboard web local usa também:
-//    ESPAsyncWebServer-esphome (ou "ESP Async WebServer" do ESP32Async) e
-//    AsyncTCP. O ESPmDNS (usado pra http://cultivo.local/) já vem embutido
-//    no core do ESP32 — não precisa instalar nada à parte pra ele.
+//    Adafruit NeoPixel, ArduinoJson (parse das respostas da Hostinger). O
+//    ESPmDNS (usado só pro anúncio de OTA agora) já vem embutido no core do
+//    ESP32 — não precisa instalar nada à parte pra ele.
 //
-//  ACESSANDO O DASHBOARD WEB
+//  CONTROLE REMOTO — SEM SERVIDOR LOCAL
 //  -----------------------------------------------------------
-//  Com o ESP32 conectado ao WiFi, abra http://cultivo.local/ num navegador
-//  na MESMA rede WiFi (celular, PC, etc.) — não precisa de internet, só de
-//  estar na mesma rede local. Isso funciona via mDNS (ver MDNS_HOSTNAME e
-//  iniciarMDNS()); Android costuma NÃO resolver nomes ".local" no navegador
-//  (funciona nativamente no iPhone) — nesse caso use o IP numérico, que
-//  aparece no Serial Monitor e por alguns segundos no próprio OLED, logo
-//  após o boot.
-//
-//  O dashboard exige usuário/senha (HTTP Basic Auth — ver WEB_AUTH_USER/
-//  WEB_AUTH_PASS, TROQUE os valores padrão antes de usar) e bloqueia
-//  tentativas repetidas erradas (ver autenticado()).
+//  Até uma versão anterior deste projeto, o controle remoto era feito por um
+//  dashboard web embutido no próprio ESP32 (ESPAsyncWebServer, servido na
+//  porta 80 da rede WiFi local). Esse servidor foi REMOVIDO: o
+//  ESPAsyncWebServer/AsyncTCP se mostrou instável sob o uso real do projeto
+//  (o sistema reiniciava sozinho ao acessar o dashboard local). Todo o
+//  controle agora é feito pelo dashboard da Hostinger (hostinger/index.php,
+//  atrás de login) — os botões lá gravam um "comando pendente" no banco, e
+//  o ESP32 busca (poll) por comandos pendentes a cada poucos segundos via
+//  HTTPS (ver atualizarComandosPendentesHostinger()), sem precisar abrir
+//  nenhuma porta/servidor no dispositivo. Isso também tem a vantagem de
+//  funcionar de fora da rede WiFi local, sem precisar de VPN/túnel.
 //
 //  ACESSO PELA INTERNET (fora da rede local)
 //  -----------------------------------------------------------
-//  Isso NÃO é feito só no firmware — o ESP32 sozinho não consegue "aparecer"
-//  na internet sem alguma ponte de rede. As opções são: (1) abrir a porta
-//  80 no roteador (port forward — exige acesso ao painel do roteador), ou
-//  (2) rodar um túnel que só faz conexão de SAÍDA a partir da sua rede (não
-//  precisa mexer no roteador), como o Cloudflare Tunnel rodando num PC/
-//  Raspberry Pi apontando pro IP local do ESP32 — essa opção também dá
-//  HTTPS de graça, o que o ESP32 sozinho não tem aqui (HTTP Basic Auth sem
-//  HTTPS não é criptografado). NUNCA exponha a porta 80 direto pra internet
-//  sem um HTTPS na frente.
+//  Já funciona nativamente: o dashboard mora na Hostinger (HTTPS, com
+//  login), não na rede local da estufa — não tem porta pra abrir no
+//  roteador nem túnel pra manter rodando. O ESP32 só precisa de acesso à
+//  internet (saída, não entrada) pra falar com a Hostinger.
 //
 //  MODOS DE COMPILAÇÃO — flag WOKWI_SIMULATION (logo abaixo)
 //  -----------------------------------------------------------
@@ -87,8 +80,9 @@
 //  automática, ou pelo override restaurado quando ainda válido), e a trava
 //  de acesso nunca volta ligada, por segurança.
 //
-//  INTEGRAÇÃO REMOTA — ver tabela dos endpoints HTTP na seção "WEBSERVER
-//  LOCAL (dashboard)" mais abaixo.
+//  INTEGRAÇÃO REMOTA — ver atualizarComandosPendentesHostinger() (busca
+//  comandos vindos do dashboard web) e enfileirarComandoHostinger()/
+//  atualizarFilaComandosHostinger() (envia de volta os eventos executados).
 //
 //  CALIBRAÇÃO NECESSÁRIA NO HARDWARE FÍSICO
 //  -------------------------------------------
@@ -97,6 +91,7 @@
 //    - ssid / password (rede WiFi real)
 //
 // =============================================================================
+
 
 // Necessário porque este arquivo agora é compilado como .cpp puro (não mais
 // .ino) — sem isso, símbolos básicos do Arduino (String, millis(), HIGH/LOW,
@@ -107,7 +102,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <RTClib.h>
-#define WOKWI_SIMULATION 1
+#define WOKWI_SIMULATION 0
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
 #endif
@@ -119,18 +114,22 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <LittleFS.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
 #include <time.h>
 #include <math.h>
+
+// Segredos (WiFi, senha OTA, API key da Hostinger) ficam em secrets.h, que
+// NÃO é commitado (ver .gitignore) — copie secrets.example.h pra secrets.h
+// e preencha com os valores reais antes de compilar.
+#include "secrets.h"
 
 // ---------------- WIFI ----------------
 // "Wokwi-GUEST" é a rede aberta com acesso à internet disponível dentro do
 // simulador Wokwi — use pra testar o dashboard web e a sincronização NTP.
 // Antes de gravar no hardware físico, troque pelo SSID e senha da sua rede
-// WiFi real.
-const char* ssid = "Wokwi-GUEST";
-const char* password = "";
+// WiFi real (em secrets.h).
+const char* ssid = SECRET_WIFI_SSID;
+const char* password = SECRET_WIFI_PASSWORD;
 
 // Nome de acesso via mDNS: com isso funcionando, o dashboard fica acessível
 // em http://cultivo.local/ (na mesma rede WiFi), sem precisar saber o IP.
@@ -139,35 +138,11 @@ const char* password = "";
 // nomes .local, mas a maioria hoje suporta nativamente.
 const char* MDNS_HOSTNAME = "cultivo";
 
-// ---------------- SEGURANÇA DO DASHBOARD WEB ----------------
-// Usuário/senha de HTTP Basic Auth — protege TODAS as rotas (página e
-// endpoints de ação), inclusive a que libera a porta. Isso é OBRIGATÓRIO
-// trocar antes de expor esse dispositivo além da sua rede local (ex: atrás
-// de um túnel/proxy pra acesso pela internet) — os valores abaixo são só
-// um exemplo e NÃO devem ir pra produção assim.
-//
-// TROQUE ISTO:
-const char* WEB_AUTH_USER = "admin";
-const char* WEB_AUTH_PASS = "2009";
-
-// Proteção simples contra tentativa repetida de senha (força bruta): depois
-// de MAX_FALHAS_AUTH tentativas erradas seguidas, bloqueia QUALQUER
-// requisição (mesmo com senha certa) por BLOQUEIO_AUTH_MS — dificulta um
-// script tentando milhares de senhas por segundo. Não é páreo pra um
-// ataque sério (HTTP Basic Auth não é criptografado — combine com HTTPS via
-// um túnel/proxy reverso se for expor na internet), mas já eleva bastante a
-// barreira pra alguém só "passando pela rede".
-const int MAX_FALHAS_AUTH = 5;
-const unsigned long BLOQUEIO_AUTH_MS = 5UL * 60UL * 1000UL; // 5 minutos
-int webFalhasAutenticacao = 0;
-unsigned long webBloqueadoAte = 0;
-
 // ---------------- OTA (atualização de firmware pela rede) ----------------
-// Senha separada da do dashboard web de propósito — são protocolos/
-// superfícies de ataque diferentes, então não faz sentido reaproveitar o
-// mesmo segredo (se um vazar, o outro continua protegido).
-// TROQUE ISTO também:
-const char* OTA_PASSWORD = "#########";
+// Senha separada de propósito (superfície de ataque diferente do login do
+// dashboard web, que agora mora na Hostinger — ver hostinger/config.php).
+// Valor real em secrets.h — precisa ser IGUAL ao --auth= do platformio.ini.
+const char* OTA_PASSWORD = SECRET_OTA_PASSWORD;
 bool otaEmAndamento = false; // true durante uma atualização — ver iniciarOTA()
 
 // ---------------- HISTÓRICO (LittleFS) ----------------
@@ -206,15 +181,14 @@ const unsigned long JANELA_WIFI_INICIAL_MS = 60000;
 const unsigned long NTP_TIMEOUT_MS = 10000;
 const unsigned long RETENTATIVA_NTP_MS = 60000;
 
-// ---------------- HOSTINGER (histórico remoto) ----------------
-// O dashboard local continua rodando no ESP32. A Hostinger recebe uma cópia
-// persistente das leituras e dos comandos, usada pelo dashboard detalhado.
-// ATENÇÃO: o botão "Site remoto" do cabeçalho de PAGINA_HTML (dashboard
-// local, mais abaixo no arquivo) tem essa mesma URL escrita à mão em HTML
-// puro (a página é uma string estática, não pode referenciar esta
-// constante em tempo de execução) — se mudar aqui, troque lá também.
-const char* HOSTINGER_BASE_URL = "Link_do_site";
-const char* HOSTINGER_API_KEY = "API Key";
+// ---------------- HOSTINGER (dashboard remoto + controle) ----------------
+// O ESP32 não tem mais servidor HTTP próprio (ver comentário no topo do
+// arquivo) — TUDO agora passa pela Hostinger: leituras e comandos
+// executados sobem pra lá (fila abaixo), e comandos originados no dashboard
+// web (botões, protegidos por login) são baixados por aqui via polling
+// (ver INTERVALO_POLL_COMANDOS_HOSTINGER_MS/atualizarComandosPendentesHostinger()).
+const char* HOSTINGER_BASE_URL = SECRET_HOSTINGER_BASE_URL;
+const char* HOSTINGER_API_KEY = SECRET_HOSTINGER_API_KEY;
 const unsigned long HOSTINGER_HTTP_TIMEOUT_MS = 7000;
 const unsigned long INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS = 1000;
 const int HOSTINGER_FILA_COMANDOS_MAX = 20;
@@ -223,6 +197,12 @@ int filaComandosInicio = 0;
 int filaComandosFim = 0;
 int filaComandosTotal = 0;
 unsigned long ultimoEnvioComandoHostingerEm = 0;
+
+// Intervalo de consulta por comandos pendentes vindos do dashboard web
+// (botões). Curto o bastante pra sentir "quase instantâneo" ao clicar num
+// botão, mas sem martelar a Hostinger sem necessidade.
+const unsigned long INTERVALO_POLL_COMANDOS_HOSTINGER_MS = 4UL * 1000UL; // 4 segundos
+unsigned long ultimaConsultaComandosPendentesEm = 0;
 
 // ---------------- PINOS ----------------
 #define SDA_PIN 8
@@ -338,14 +318,6 @@ Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 DHT dhtExterno(DHT_EXT_PIN, DHT_EXT_TYPE);
 Adafruit_NeoPixel pixel(1, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-// ---------------- WEBSERVER LOCAL (dashboard) ----------------
-// Servidor HTTP embutido — dá pra abrir http://<ip-do-esp32>/ em qualquer
-// navegador na mesma rede WiFi e ver/controlar tudo. É a ÚNICA interface
-// remota do sistema (não depende de nenhum serviço de nuvem de terceiros).
-// Não-bloqueante (ESPAsyncWebServer roda por trás via AsyncTCP), então não
-// precisa de nenhuma chamada tipo "server.handleClient()" dentro do loop().
-// Rotas registradas em configurarServidorWeb() (chamada uma vez no setup()).
-AsyncWebServer server(80);
 
 // ---------------- LED (indicador de VPD) ----------------
 // O NeoPixel deixou de mostrar status de conexão (WiFi/porta/confirmação) e
@@ -530,7 +502,8 @@ void iniciarHistorico();
 void registrarHistorico();
 void rotacionarHistoricoSeNecessario();
 void atualizarHistorico();
-String construirHistoricoJson(int limite);
+void atualizarComandosPendentesHostinger();
+void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const String& valor);
 
 // ---------------- LED (indicador de VPD) ----------------
 // Calcula o VPD (Déficit de Pressão de Vapor, em kPa) a partir da
@@ -604,8 +577,8 @@ void atualizarLEDVPD() {
 }
 
 // Aplica um comando de relé manual vindo do dashboard web (ver
-// configurarServidorWeb()). Só age se o valor for diferente do atual (evita
-// gravar na NVRAM à toa em cada chamada repetida).
+// aplicarComandoRemotoWeb()). Só age se o valor for diferente do atual
+// (evita gravar na NVRAM à toa em cada chamada repetida).
 void aplicarComandoRele(int indiceRele, int valor) {
   bool novoEstado = valor == 1;
   if (estadoReles[indiceRele] == novoEstado) return;
@@ -1873,8 +1846,8 @@ DateTime obterAgora() {
   return DateTime(2026, 1, 1, 0, 0, 0);
 }
 
-// Formata a hora atual como string "AAAA-MM-DD HH:MM:SS" (usado no JSON de
-// status do dashboard web — ver construirStatusJson()).
+// Formata a hora atual como string "AAAA-MM-DD HH:MM:SS" (usado nos
+// payloads enviados pra Hostinger — leituras e comandos).
 String obterTimestampAtual() {
   DateTime now = obterAgora();
   char buffer[32];
@@ -2009,9 +1982,109 @@ void atualizarFilaComandosHostinger() {
   filaComandosTotal--;
 }
 
+// Aplica um comando vindo do dashboard web (via fila de comandos pendentes
+// da Hostinger — ver atualizarComandosPendentesHostinger()). É o
+// equivalente remoto do que antigamente eram as rotas /api/rele,
+// /api/modo_cultivo, /api/luz_manual e /api/acesso do servidor local (hoje
+// removido): mesmo "tipo"/"alvo"/"valor" que o botão do dashboard manda,
+// só que chegando por polling em vez de HTTP direto no ESP32.
+void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const String& valor) {
+  if (tipo == "rele") {
+    int indiceRele = -1;
+    for (int i = 0; i < TOTAL_RELES_MANUAIS; i++) {
+      if (String(nomeReleControle(RELES_MANUAIS[i])) == alvo) {
+        indiceRele = RELES_MANUAIS[i];
+        break;
+      }
+    }
+    if (indiceRele < 0) {
+      Serial.println("Hostinger: comando remoto com rele desconhecido: " + alvo);
+      return;
+    }
+    aplicarComandoRele(indiceRele, valor == "ligado" ? 1 : 0);
+  } else if (tipo == "modo_cultivo") {
+    definirModoCultivoRemoto(valor == "floracao" ? FLORACAO : VEGETACAO);
+  } else if (tipo == "luz_manual") {
+    ModoControleLuz novoModo = LUZ_AUTOMATICA;
+    if (valor == "ligada") novoModo = LUZ_MANUAL_LIGADA;
+    else if (valor == "desligada") novoModo = LUZ_MANUAL_DESLIGADA;
+    definirModoControleLuzRemoto(novoModo);
+  } else if (tipo == "acesso") {
+    liberarAcessoRemoto();
+  } else {
+    Serial.println("Hostinger: tipo de comando remoto desconhecido: " + tipo);
+  }
+}
+
+// Busca (poll) por comandos pendentes gerados pelos botões do dashboard web
+// da Hostinger (enviar_comando.php grava lá; comandos_pendentes.php serve
+// daqui). Substitui por completo o antigo servidor HTTP local: em vez do
+// navegador falar direto com o ESP32, ele fala com a Hostinger, e o ESP32
+// é quem "puxa" (poll) os comandos — não precisa abrir nenhuma porta/
+// servidor no dispositivo, e funciona de qualquer lugar com internet, não
+// só na rede WiFi local.
+//
+// A cada chamada com sucesso, o endpoint já marca os comandos retornados
+// como "entregues" do lado da Hostinger (não aparecem de novo na próxima
+// consulta) — troca simplicidade por uma pequena chance de perda em caso
+// de queda de rede bem no meio da resposta, aceitável pro caso de uso
+// (poll a cada poucos segundos, comandos não-críticos como ligar um relé).
+void atualizarComandosPendentesHostinger() {
+  if (!wifiConectado || WiFi.status() != WL_CONNECTED) return;
+  if (millis() - ultimaConsultaComandosPendentesEm < INTERVALO_POLL_COMANDOS_HOSTINGER_MS) return;
+  ultimaConsultaComandosPendentesEm = millis();
+
+  WiFiClientSecure client;
+  client.setInsecure(); // mesmo esquema usado em enviarJsonHostinger() — HTTPS sem fixar certificado
+  HTTPClient http;
+  String url = String(HOSTINGER_BASE_URL) + "/comandos_pendentes.php";
+  if (!http.begin(client, url)) {
+    Serial.println("Hostinger: falha ao iniciar HTTP (comandos pendentes)");
+    return;
+  }
+
+  http.setTimeout(HOSTINGER_HTTP_TIMEOUT_MS);
+  http.addHeader("X-API-Key", HOSTINGER_API_KEY);
+
+  int status = http.GET();
+  if (status != 200) {
+    if (status > 0) {
+      Serial.print("Hostinger: erro HTTP ");
+      Serial.print(status);
+      Serial.println(" em /comandos_pendentes.php");
+    }
+    http.end();
+    return;
+  }
+
+  String resposta = http.getString();
+  http.end();
+
+  // Documento pequeno (poucos comandos por vez) — 2KB é folga generosa.
+  StaticJsonDocument<2048> doc;
+  DeserializationError erroJson = deserializeJson(doc, resposta);
+  if (erroJson) {
+    Serial.print("Hostinger: JSON invalido em comandos pendentes: ");
+    Serial.println(erroJson.c_str());
+    return;
+  }
+
+  if (!(doc["ok"] | false)) return;
+
+  JsonArray comandos = doc["comandos"].as<JsonArray>();
+  for (JsonObject c : comandos) {
+    String tipo = c["tipo"] | "";
+    String alvo = c["alvo"] | "";
+    String valor = c["valor"] | "";
+    if (tipo == "" || alvo == "" || valor == "") continue;
+    aplicarComandoRemotoWeb(tipo, alvo, valor);
+  }
+}
+
 // FUNÇÕES DE LOG — ponto único para registrar comandos feitos no sistema.
-// Hoje os eventos são enviados para a Hostinger; o dashboard local continua
-// independente e funcionando mesmo se a internet cair.
+// Os eventos (executados tanto localmente — botão físico, menu OLED — como
+// vindos do dashboard web) são enviados pra Hostinger, onde ficam
+// disponíveis pro histórico e pela Roda de Eventos do dashboard.
 void registrarEventoModo(const char* estadoModo, const char* origem) {
   enfileirarComandoHostinger("modo_cultivo", "modo_cultivo", estadoModo, origem);
 }
@@ -2511,638 +2584,21 @@ void atualizarEnvioLeituraHostinger() {
   enviarLeituraHostinger();
 }
 
-// Monta um JSON com as últimas "limite" linhas do histórico, pro dashboard
-// desenhar o gráfico. Processa o arquivo EM STREAMING (mesmo motivo de
-// rotacionarHistoricoSeNecessario(): nunca guarda um array de Strings do
-// tamanho do arquivo inteiro) — usa historicoTotalLinhas (já conhecido) pra
-// calcular quantas linhas do começo pular, sem precisar bufferizar nada.
-String construirHistoricoJson(int limite) {
-  if (!historicoDisponivel) return "[]";
-  if (limite > historicoTotalLinhas) limite = historicoTotalLinhas;
-  if (limite <= 0) return "[]";
-
-  File arquivo = LittleFS.open(HISTORICO_ARQUIVO, "r");
-  if (!arquivo) return "[]";
-
-  arquivo.readStringUntil('\n'); // descarta o cabeçalho
-
-  int totalASaltar = historicoTotalLinhas - limite;
-  int linhaAtual = 0;
-  int adicionadas = 0;
-
-  String json = "[";
-  while (arquivo.available()) {
-    String linha = arquivo.readStringUntil('\n');
-    if (linha.length() == 0) continue;
-    linhaAtual++;
-    if (linhaAtual <= totalASaltar) continue; // pula as mais antigas
-
-    if (adicionadas > 0) json += ",";
-    // Cada linha do CSV vira um array de campos no JSON (o próprio JS do
-    // dashboard sabe a ordem das colunas — mesma ordem do HISTORICO_CABECALHO).
-    json += "[";
-    int campoInicio = 0;
-    for (int pos = 0; pos <= linha.length(); pos++) {
-      if (pos == linha.length() || linha[pos] == ',') {
-        json += "\"" + linha.substring(campoInicio, pos) + "\"";
-        if (pos != linha.length()) json += ",";
-        campoInicio = pos + 1;
-      }
-    }
-    json += "]";
-    adicionadas++;
-  }
-  json += "]";
-
-  arquivo.close();
-  return json;
-}
-
-// ---------------- WEBSERVER LOCAL (dashboard) ----------------
-// Monta o "retrato" atual do sistema em JSON — usado tanto pela rota
-// /api/status quanto como corpo de resposta das rotas de ação (assim a
-// página web já recebe o estado atualizado sem precisar de uma segunda
-// requisição). Construção manual de string (sem lib externa tipo
-// ArduinoJson) porque o formato é simples e fixo — evita mais uma
-// dependência só pra isso.
-// Nome curto da zona de VPD, pros mesmos limites usados em corParaVPD() —
-// usado só pra exibição (dashboard); a lógica de cor do LED não depende
-// desta função, cada uma calcula os limites de forma independente.
-String zonaVPD(float vpd) {
-  if (vpd < 0.4) return "Muito umido";
-  if (vpd < 0.8) return "Propagacao/Veg inicial";
-  if (vpd < 1.2) return "Veg tardio/Flora inicial";
-  if (vpd < 1.6) return "Flora media/tardia";
-  return "Muito seco";
-}
-
-String construirStatusJson() {
-  DateTime now = obterAgora();
-
-  String json = "{";
-  json += "\"temp_interna\":" + (isnan(tempAtual) ? String("null") : String(tempAtual, 1)) + ",";
-  json += "\"umid_interna\":" + (isnan(umidAtual) ? String("null") : String(umidAtual, 0)) + ",";
-  json += "\"temp_externa\":" + (isnan(tempExterna) ? String("null") : String(tempExterna, 1)) + ",";
-  json += "\"umid_externa\":" + (isnan(umidExterna) ? String("null") : String(umidExterna, 0)) + ",";
-  if (isnan(tempAtual) || isnan(umidAtual)) {
-    json += "\"vpd\":null,";
-    json += "\"vpd_zona\":\"--\",";
-  } else {
-    float vpd = calcularVPD(tempAtual, umidAtual);
-    json += "\"vpd\":" + String(vpd, 2) + ",";
-    json += "\"vpd_zona\":\"" + zonaVPD(vpd) + "\",";
-  }
-  json += "\"solo_percentual\":" + String(soloPercentual) + ",";
-  json += "\"solo_estado\":\"" + String(estadoSolo()) + "\",";
-  json += "\"modo_cultivo\":\"" + String(modoAtual == VEGETACAO ? "vegetativo" : "floracao") + "\",";
-  json += "\"luz_ligada\":" + String(estadoReles[RELE_LUZ] ? "true" : "false") + ",";
-  json += "\"luz_modo\":\"" +
-          String(modoControleLuz == LUZ_AUTOMATICA ? "auto" : (modoControleLuz == LUZ_MANUAL_LIGADA ? "ligada" : "desligada")) +
-          "\",";
-  json += "\"luz_tempo_restante\":\"" +
-          (modoControleLuz != LUZ_AUTOMATICA ? tempoRestanteOverrideLuz() : tempoRestante(now)) + "\",";
-  json += "\"reles\":{";
-  json += "\"desumidificador\":" + String(estadoReles[RELE_DESUMIDIFICADOR] ? "true" : "false") + ",";
-  json += "\"ventilador\":" + String(estadoReles[RELE_VENTILADOR] ? "true" : "false") + ",";
-  json += "\"entrada_ar_1\":" + String(estadoReles[RELE_ENTRADA_AR_1] ? "true" : "false") + ",";
-  json += "\"entrada_ar_2\":" + String(estadoReles[RELE_ENTRADA_AR_2] ? "true" : "false") + ",";
-  json += "\"saida_ar\":" + String(estadoReles[RELE_SAIDA_AR] ? "true" : "false");
-  json += "},";
-  json += "\"acesso_ativo\":" + String(acessoAtivo ? "true" : "false") + ",";
-  json += "\"wifi_conectado\":" + String(wifiConectado ? "true" : "false") + ",";
-  json += "\"timestamp\":\"" + obterTimestampAtual() + "\"";
-  json += "}";
-  return json;
-}
-
-// Página única (HTML + CSS + JS, tudo embutido) — não depende de
-// SPIFFS/LittleFS nem de internet pra carregar (nenhum CDN externo é
-// usado). Ela consulta /api/status a cada 2s via fetch() e manda as ações
-// pros endpoints /api/* abaixo. Fica na RAM (não em PROGMEM) de propósito —
-// ver comentário em configurarServidorWeb() sobre por quê.
-const char PAGINA_HTML[] = R"HTMLPAGE(<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cultivo</title>
-<style>
-  :root {
-    color-scheme: dark;
-    --bg: #101214;
-    --card: #1b1e22;
-    --card2: #191c1f;
-    --texto: #eef0f2;
-    --muted: #8b95a1;
-    --verde: #22c55e;
-    --verde-escuro: #14532d;
-    --vermelho: #7f1d1d;
-    --vermelho-texto: #fca5a5;
-    --borda: #2a2e33;
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--texto);
-    margin: 0;
-    padding: 16px;
-  }
-  .wrap { max-width: 1180px; margin: 0 auto; }
-
-  header.topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-  .brand { display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 700; }
-  .brand .titulo-curto { display: inline; }
-  .brand .titulo-longo { display: none; }
-  .conexao { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: #444; flex: none; }
-  .dot.on { background: var(--verde); box-shadow: 0 0 6px var(--verde); }
-  .conexao-texto { display: none; }
-  .btn-remoto {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--texto);
-    background: var(--card2);
-    border: 1px solid var(--borda);
-    border-radius: 999px;
-    padding: 7px 12px;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-
-  .card {
-    background: var(--card);
-    border-radius: 14px;
-    padding: 14px;
-  }
-  .card-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-  .card-valor { font-size: 20px; font-weight: 700; }
-  .card-luz .card-valor { color: var(--verde); }
-
-  .stats-mobile {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-  .stats-desktop { display: none; }
-
-  .vpd-card {
-    background: var(--card);
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 20px;
-  }
-  .vpd-topo { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-  .vpd-label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .vpd-label .vpd-label-desktop { display: none; }
-  .vpd-valor { font-size: 20px; font-weight: 700; }
-  .vpd-barra {
-    position: relative;
-    height: 10px;
-    border-radius: 6px;
-    overflow: visible;
-    background: linear-gradient(to right,
-      #AB0025 0%, #AB0025 20%,
-      #FE69FF 20%, #FE69FF 40%,
-      #0EAD31 40%, #0EAD31 60%,
-      #DBCB0F 60%, #DBCB0F 80%,
-      #AB0025 80%, #AB0025 100%);
-  }
-  .vpd-marcador {
-    position: absolute;
-    top: -4px;
-    width: 3px;
-    height: 18px;
-    background: #fff;
-    border-radius: 2px;
-    box-shadow: 0 0 4px rgba(0,0,0,.6);
-    left: 50%;
-    transition: left .3s ease;
-  }
-  .vpd-rodape { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; flex-wrap: wrap; }
-  .vpd-escala { display: none; flex: 1; font-size: 11px; color: var(--muted); }
-  .vpd-escala span { flex: 1; text-align: center; }
-  .vpd-escala span:first-child { text-align: left; }
-  .vpd-escala span:last-child { text-align: right; }
-  .vpd-zona {
-    background: var(--verde-escuro);
-    color: var(--verde);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 5px 12px;
-    border-radius: 999px;
-  }
-
-  section { margin-bottom: 22px; }
-  section h2 {
-    font-size: 12px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin: 0 0 10px;
-    font-weight: 700;
-  }
-
-  .botoes { display: flex; gap: 8px; flex-wrap: wrap; }
-  button, .btn-link {
-    flex: 1;
-    min-width: 90px;
-    padding: 13px 10px;
-    border: none;
-    border-radius: 10px;
-    background: var(--card2);
-    color: var(--texto);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: center;
-    text-decoration: none;
-    display: block;
-  }
-  button.ativo { background: var(--verde); color: #05230f; }
-  button.perigo {
-    background: var(--vermelho);
-    color: var(--vermelho-texto);
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-
-  .switch-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--card);
-    border-radius: 12px;
-    padding: 13px 14px;
-    margin-bottom: 8px;
-  }
-  .switch-row span { font-size: 14px; display: flex; align-items: center; gap: 6px; }
-  .toggle {
-    width: 46px; height: 26px;
-    border-radius: 13px;
-    background: #333;
-    position: relative;
-    border: none;
-    flex: none;
-    cursor: pointer;
-  }
-  .toggle.on { background: var(--verde); }
-  .toggle .bola {
-    position: absolute; top: 3px; left: 3px;
-    width: 20px; height: 20px;
-    border-radius: 50%;
-    background: #fff;
-    transition: left .15s;
-  }
-  .toggle.on .bola { left: 23px; }
-
-  /* Histórico: no celular a tela é mais estreita que o gráfico, então em
-     vez de espremer (o que deixaria os traços/números ilegíveis), o
-     gráfico mantém o tamanho original e o contêiner ganha rolagem lateral
-     — arrasta pro lado no celular pra ver o resto. No desktop, a coluna é
-     larga o bastante e o gráfico cabe inteiro sem precisar rolar.
-     min-width:0 é necessário porque itens de grid/flex, por padrão, não
-     encolhem além do tamanho do conteúdo — sem isso, o contêiner "empurra"
-     a página inteira pra ficar mais larga em vez de rolar por dentro. */
-  .sec-historico { min-width: 0; }
-  .grafico-scroll {
-    width: 100%;
-    min-width: 0;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    border-radius: 14px;
-  }
-  #graficoHistorico {
-    width: 600px;
-    height: 160px;
-    background: var(--card);
-    border-radius: 14px;
-    display: block;
-  }
-
-  .sec-exportar { display: none; }
-
-  .status-linha { font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
-
-  .conteudo-principal {
-    display: grid;
-    grid-template-areas:
-      "modo"
-      "luz"
-      "reles"
-      "acesso"
-      "historico"
-      "exportar";
-    gap: 22px;
-  }
-  .sec-modo { grid-area: modo; }
-  .sec-luz { grid-area: luz; }
-  .sec-reles { grid-area: reles; }
-  .sec-acesso { grid-area: acesso; }
-  .sec-historico { grid-area: historico; }
-  .sec-exportar { grid-area: exportar; }
-
-  @media (min-width: 900px) {
-    body { padding: 24px 32px; }
-    .brand { font-size: 22px; }
-    .brand .titulo-curto { display: none; }
-    .brand .titulo-longo { display: inline; }
-    .conexao-texto { display: inline; }
-
-    .stats-mobile { display: none; }
-    .stats-desktop {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-    .stats-desktop .card { flex: 1; }
-    .stats-desktop .card-valor { font-size: 22px; }
-
-    .vpd-label .vpd-label-desktop { display: inline; }
-    .vpd-escala { display: flex; }
-
-    .sec-exportar { display: block; }
-
-    .conteudo-principal {
-      grid-template-columns: 2fr 1fr;
-      grid-template-areas:
-        "historico modo"
-        "historico luz"
-        "reles acesso"
-        "reles exportar";
-      column-gap: 28px;
-    }
-  }
-</style>
-</head>
-<body>
-<div class="wrap">
-
-  <header class="topbar">
-    <div class="brand">
-      <span>&#127793;</span>
-      <span class="titulo-curto">Cultivo</span>
-      <span class="titulo-longo">Estufa &mdash; Cultivo</span>
-    </div>
-    <div class="conexao">
-      <span class="dot" id="dotOnline"></span>
-      <span class="conexao-texto" id="conexaoTexto">--</span>
-      <a class="btn-remoto" href="https://powderblue-rhinoceros-609254.hostingersite.com" target="_blank" rel="noopener">&#127760; Site remoto</a>
-    </div>
-  </header>
-
-  <div class="stats-mobile">
-    <div class="card"><div class="card-label">Interna</div><div class="card-valor" id="statInternaMobile">-- &middot; --</div></div>
-    <div class="card"><div class="card-label">Externa</div><div class="card-valor" id="statExternaMobile">-- &middot; --</div></div>
-    <div class="card"><div class="card-label">Solo</div><div class="card-valor" id="statSoloMobile">--</div></div>
-    <div class="card card-luz"><div class="card-label">Luz</div><div class="card-valor" id="statLuzMobile">--</div></div>
-  </div>
-
-  <div class="stats-desktop">
-    <div class="card"><div class="card-label">Temp. interna</div><div class="card-valor" id="statTempInterna">--</div></div>
-    <div class="card"><div class="card-label">Umid. interna</div><div class="card-valor" id="statUmidInterna">--</div></div>
-    <div class="card"><div class="card-label">Temp. externa</div><div class="card-valor" id="statTempExterna">--</div></div>
-    <div class="card"><div class="card-label">Umid. externa</div><div class="card-valor" id="statUmidExterna">--</div></div>
-    <div class="card"><div class="card-label">Solo</div><div class="card-valor" id="statSolo">--</div></div>
-    <div class="card card-luz"><div class="card-label">&#9728; Luz</div><div class="card-valor" id="statLuz">--</div></div>
-  </div>
-
-  <div class="vpd-card">
-    <div class="vpd-topo">
-      <span class="vpd-label">&#128274; VPD <span class="vpd-label-desktop">(d&eacute;ficit de press&atilde;o de vapor)</span></span>
-      <span class="vpd-valor" id="vpdValor">-- kPa</span>
-    </div>
-    <div class="vpd-barra">
-      <div class="vpd-marcador" id="vpdMarcador"></div>
-    </div>
-    <div class="vpd-rodape">
-      <div class="vpd-escala"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0+</span></div>
-      <div class="vpd-zona" id="vpdZonaPill">--</div>
-    </div>
-  </div>
-
-  <div class="conteudo-principal">
-
-    <section class="sec-historico">
-      <h2>Hist&oacute;rico (&uacute;ltimas 24h)</h2>
-      <div class="grafico-scroll">
-        <canvas id="graficoHistorico" width="600" height="160"></canvas>
-      </div>
-    </section>
-
-    <section class="sec-modo">
-      <h2>Modo de Cultivo</h2>
-      <div class="botoes">
-        <button id="btnVega" onclick="setModoCultivo('vegetativo')">Vegetativo</button>
-        <button id="btnFlora" onclick="setModoCultivo('floracao')">Flora&ccedil;&atilde;o</button>
-      </div>
-    </section>
-
-    <section class="sec-luz">
-      <h2>Controle da Luz</h2>
-      <div class="botoes">
-        <button id="btnLuzAuto" onclick="setLuzManual('auto')">Autom&aacute;tico</button>
-        <button id="btnLuzOn" onclick="setLuzManual('ligada')">Ligar</button>
-        <button id="btnLuzOff" onclick="setLuzManual('desligada')">Desligar</button>
-      </div>
-    </section>
-
-    <section class="sec-reles">
-      <h2>Rel&eacute;s</h2>
-      <div class="switch-row"><span>Desumidificador</span><button class="toggle" id="tglDesumidificador" onclick="toggleRele(1,'tglDesumidificador')"><div class="bola"></div></button></div>
-      <div class="switch-row"><span>Ventilador</span><button class="toggle" id="tglVentilador" onclick="toggleRele(2,'tglVentilador')"><div class="bola"></div></button></div>
-      <div class="switch-row"><span>Entrada de Ar 1</span><button class="toggle" id="tglEntrada1" onclick="toggleRele(4,'tglEntrada1')"><div class="bola"></div></button></div>
-      <div class="switch-row"><span>Entrada de Ar 2</span><button class="toggle" id="tglEntrada2" onclick="toggleRele(5,'tglEntrada2')"><div class="bola"></div></button></div>
-      <div class="switch-row"><span>Sa&iacute;da de Ar</span><button class="toggle" id="tglSaida" onclick="toggleRele(7,'tglSaida')"><div class="bola"></div></button></div>
-    </section>
-
-    <section class="sec-acesso">
-      <h2>Acesso</h2>
-      <button class="perigo" onclick="abrirPorta()">&#128275; Liberar Porta (3s)</button>
-    </section>
-
-    <section class="sec-exportar">
-      <h2>Exportar</h2>
-      <a class="btn-link" href="/api/historico/csv">&#11015; Baixar CSV completo</a>
-    </section>
-
-  </div>
-
-  <div class="status-linha" id="statusLinha">conectando...</div>
-
-</div>
-
-<script>
-async function atualizarStatus() {
-  try {
-    const r = await fetch('/api/status');
-    const d = await r.json();
-
-    const tI = (d.temp_interna===null?'--':d.temp_interna.toFixed(1).replace('.',',')+'\u00b0C');
-    const uI = (d.umid_interna===null?'--':d.umid_interna+'%');
-    const tE = (d.temp_externa===null?'--':d.temp_externa.toFixed(1).replace('.',',')+'\u00b0C');
-    const uE = (d.umid_externa===null?'--':d.umid_externa+'%');
-    const soloTxt = d.solo_estado + ' ' + d.solo_percentual + '%';
-    const luzTxt = (d.luz_modo==='auto' ? '' : 'LM ') + d.luz_tempo_restante;
-
-    document.getElementById('statInternaMobile').textContent = tI + ' \u00b7 ' + uI;
-    document.getElementById('statExternaMobile').textContent = tE + ' \u00b7 ' + uE;
-    document.getElementById('statSoloMobile').textContent = soloTxt;
-    document.getElementById('statLuzMobile').textContent = luzTxt;
-
-    document.getElementById('statTempInterna').textContent = tI;
-    document.getElementById('statUmidInterna').textContent = uI;
-    document.getElementById('statTempExterna').textContent = tE;
-    document.getElementById('statUmidExterna').textContent = uE;
-    document.getElementById('statSolo').textContent = soloTxt;
-    document.getElementById('statLuz').textContent = luzTxt;
-
-    document.getElementById('vpdValor').textContent = (d.vpd===null ? '--' : d.vpd.toFixed(2).replace('.',',') + ' kPa');
-    document.getElementById('vpdZonaPill').textContent = d.vpd_zona || '--';
-    const pct = (d.vpd===null) ? 50 : Math.max(0, Math.min(100, (d.vpd / 2.0) * 100));
-    document.getElementById('vpdMarcador').style.left = pct + '%';
-
-    document.getElementById('btnVega').classList.toggle('ativo', d.modo_cultivo==='vegetativo');
-    document.getElementById('btnFlora').classList.toggle('ativo', d.modo_cultivo==='floracao');
-
-    document.getElementById('btnLuzAuto').classList.toggle('ativo', d.luz_modo==='auto');
-    document.getElementById('btnLuzOn').classList.toggle('ativo', d.luz_modo==='ligada');
-    document.getElementById('btnLuzOff').classList.toggle('ativo', d.luz_modo==='desligada');
-
-    setToggle('tglDesumidificador', d.reles.desumidificador);
-    setToggle('tglVentilador', d.reles.ventilador);
-    setToggle('tglEntrada1', d.reles.entrada_ar_1);
-    setToggle('tglEntrada2', d.reles.entrada_ar_2);
-    setToggle('tglSaida', d.reles.saida_ar);
-
-    document.getElementById('dotOnline').classList.toggle('on', d.wifi_conectado);
-    document.getElementById('conexaoTexto').textContent = 'cultivo.local \u2014 atualizado ' + d.timestamp.substring(11);
-    document.getElementById('statusLinha').textContent = 'atualizado ' + d.timestamp + (d.wifi_conectado ? '' : ' (sem wifi)');
-  } catch (e) {
-    document.getElementById('statusLinha').textContent = 'sem conexao com o dispositivo';
-    document.getElementById('dotOnline').classList.remove('on');
-  }
-}
-
-function setToggle(id, ligado) {
-  document.getElementById(id).classList.toggle('on', ligado);
-}
-
-async function setModoCultivo(valor) {
-  await fetch('/api/modo_cultivo?valor=' + valor);
-  atualizarStatus();
-}
-
-async function setLuzManual(modo) {
-  await fetch('/api/luz_manual?modo=' + modo);
-  atualizarStatus();
-}
-
-async function toggleRele(id, elId) {
-  const ligado = document.getElementById(elId).classList.contains('on');
-  await fetch('/api/rele?id=' + id + '&estado=' + (ligado ? 0 : 1));
-  atualizarStatus();
-}
-
-async function abrirPorta() {
-  await fetch('/api/acesso');
-  atualizarStatus();
-}
-
-async function atualizarGraficoHistorico() {
-  try {
-    const r = await fetch('/api/historico/json?limite=144');
-    const linhas = await r.json();
-    desenharGrafico(linhas);
-  } catch (e) {
-    // silencioso
-  }
-}
-
-function desenharGrafico(linhas) {
-  const canvas = document.getElementById('graficoHistorico');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-
-  if (!linhas || linhas.length < 2) {
-    ctx.fillStyle = '#666';
-    ctx.font = '13px sans-serif';
-    ctx.fillText('Sem dados suficientes ainda', 12, h / 2);
-    return;
-  }
-
-  const temps = linhas.map(l => parseFloat(l[1])).filter(v => !isNaN(v));
-  if (temps.length < 2) {
-    ctx.fillStyle = '#666';
-    ctx.fillText('Sem leituras de temperatura ainda', 12, h / 2);
-    return;
-  }
-
-  const minT = Math.min(...temps), maxT = Math.max(...temps);
-  const margem = 12;
-  const faixa = Math.max(maxT - minT, 1);
-
-  ctx.strokeStyle = '#22c55e';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  let primeiro = true;
-  linhas.forEach((linha, i) => {
-    const v = parseFloat(linha[1]);
-    if (isNaN(v)) return;
-    const x = (i / (linhas.length - 1)) * (w - margem * 2) + margem;
-    const y = h - margem - ((v - minT) / faixa) * (h - margem * 2);
-    if (primeiro) { ctx.moveTo(x, y); primeiro = false; }
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  ctx.fillStyle = '#8b95a1';
-  ctx.font = '11px sans-serif';
-  ctx.fillText(maxT.toFixed(1) + '\u00b0C', 4, 14);
-  ctx.fillText(minT.toFixed(1) + '\u00b0C', 4, h - 6);
-}
-
-atualizarStatus();
-setInterval(atualizarStatus, 2000);
-atualizarGraficoHistorico();
-setInterval(atualizarGraficoHistorico, 60000);
-</script>
-</body>
-</html>
-)HTMLPAGE";
-
-// Liga o responder mDNS, permitindo acessar o dashboard em
-// http://cultivo.local/ em vez de precisar saber o IP, e também anuncia o
-// serviço de OTA (ver iniciarOTA()) — precisa reanunciar os dois toda vez,
-// porque MDNS.end()/begin() reseta TODOS os serviços registrados antes.
-// Chamada de dois lugares: uma vez no setup() (boot normal com WiFi já
-// conectado) e de novo sempre que atualizarConexaoWiFi() detectar uma
-// reconexão (o IP pode ter mudado, e o responder mDNS do ESP32 não se
-// adapta sozinho a isso — precisa reiniciar).
+// Liga o responder mDNS — hoje só existe pra anunciar o serviço de OTA (ver
+// iniciarOTA()), permitindo gravar firmware por "cultivo.local" em vez de
+// precisar saber o IP na hora do upload. Chamada de dois lugares: uma vez
+// no setup() (boot normal com WiFi já conectado) e de novo sempre que
+// atualizarConexaoWiFi() detectar uma reconexão (o IP pode ter mudado, e o
+// responder mDNS do ESP32 não se adapta sozinho a isso — precisa reiniciar).
 void iniciarMDNS() {
   MDNS.end(); // seguro chamar mesmo se nunca foi iniciado antes
   if (MDNS.begin(MDNS_HOSTNAME)) {
-    MDNS.addService("http", "tcp", 80);
-    MDNS.enableArduino(3232, true); // reanuncia o serviço de OTA (porta padrão do ArduinoOTA)
-    Serial.print("mDNS ativo: http://");
+    MDNS.enableArduino(3232, true); // anuncia o serviço de OTA (porta padrão do ArduinoOTA)
+    Serial.print("mDNS ativo (OTA): ");
     Serial.print(MDNS_HOSTNAME);
-    Serial.println(".local/");
+    Serial.println(".local");
   } else {
-    Serial.println("Falha ao iniciar mDNS (dashboard ainda funciona pelo IP)");
+    Serial.println("Falha ao iniciar mDNS (upload OTA ainda funciona pelo IP)");
   }
 }
 
@@ -3198,153 +2654,6 @@ void iniciarOTA() {
   Serial.println(MDNS_HOSTNAME);
 }
 
-
-// de falhas. Retorna true se a requisição pode prosseguir; se retornar
-// false, já cuidou de mandar a resposta certa (401 ou 429) — quem chamar só
-// precisa dar "return" na sequência.
-bool autenticado(AsyncWebServerRequest *request) {
-  if (webBloqueadoAte > 0 && millis() < webBloqueadoAte) {
-    request->send(429, "text/plain", "Muitas tentativas — aguarde alguns minutos.");
-    return false;
-  }
-
-  if (!request->authenticate(WEB_AUTH_USER, WEB_AUTH_PASS)) {
-    webFalhasAutenticacao++;
-    if (webFalhasAutenticacao >= MAX_FALHAS_AUTH) {
-      webBloqueadoAte = millis() + BLOQUEIO_AUTH_MS;
-      webFalhasAutenticacao = 0;
-      Serial.println("Dashboard web: bloqueado temporariamente por excesso de tentativas de login");
-    }
-    request->requestAuthentication();
-    return false;
-  }
-
-  webFalhasAutenticacao = 0; // login certo zera o contador de falhas
-  return true;
-}
-
-// Registra todas as rotas HTTP e sobe o servidor. Chamada uma única vez, no
-// setup(). As rotas de ação usam GET com querystring (em vez de POST/JSON no
-// corpo) de propósito, pra ficar simples de testar até direto pela barra de
-// endereço do navegador — não é o mais "RESTful", mas é pragmático para um
-// dashboard local numa rede confiável.
-//
-// SEGURANÇA: todas as rotas abaixo exigem HTTP Basic Auth (usuário/senha em
-// WEB_AUTH_USER/WEB_AUTH_PASS, ver topo do arquivo — TROQUE os valores
-// padrão) e há um bloqueio temporário após tentativas repetidas erradas
-// (ver autenticado()). Ainda assim, HTTP Basic Auth por si só NÃO é
-// criptografado — dá pra fazer sniffing da senha numa rede não confiável.
-// Se for expor esse dispositivo além da rede local (ex: pela internet via
-// um túnel/proxy), use um transporte com HTTPS (o túnel cuida disso) e
-// nunca exponha a porta 80 direto pra internet sem isso.
-void configurarServidorWeb() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    // send() simples (mesma sobrecarga já usada nas rotas de JSON abaixo, e
-    // que já provou compilar sem erro) em vez de send_P()/beginResponse_P():
-    // essas variantes "_P" têm assinaturas que mudam entre versões da lib
-    // ESPAsyncWebServer, o que causava erro de compilação. Sem PROGMEM a
-    // página fica na RAM em vez da flash (~6KB — irrelevante pro ESP32, que
-    // tem centenas de KB de RAM livre), então não compensa insistir nisso.
-    request->send(200, "text/html", PAGINA_HTML);
-  });
-
-  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    request->send(200, "application/json", construirStatusJson());
-  });
-
-  server.on("/api/rele", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    if (!request->hasParam("id") || !request->hasParam("estado")) {
-      request->send(400, "text/plain", "parametros id e estado sao obrigatorios");
-      return;
-    }
-
-    int id = request->getParam("id")->value().toInt();
-    int estado = request->getParam("estado")->value().toInt();
-
-    bool idValido = false;
-    for (int i = 0; i < TOTAL_RELES_MANUAIS; i++) {
-      if (RELES_MANUAIS[i] == id) {
-        idValido = true;
-        break;
-      }
-    }
-    if (!idValido) {
-      request->send(400, "text/plain", "id de rele invalido");
-      return;
-    }
-
-    aplicarComandoRele(id, estado);
-    request->send(200, "application/json", construirStatusJson());
-  });
-
-  server.on("/api/modo_cultivo", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    if (!request->hasParam("valor")) {
-      request->send(400, "text/plain", "parametro valor e obrigatorio");
-      return;
-    }
-    String valor = request->getParam("valor")->value();
-    definirModoCultivoRemoto(valor == "floracao" ? FLORACAO : VEGETACAO);
-    request->send(200, "application/json", construirStatusJson());
-  });
-
-  server.on("/api/luz_manual", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    if (!request->hasParam("modo")) {
-      request->send(400, "text/plain", "parametro modo e obrigatorio");
-      return;
-    }
-    String modo = request->getParam("modo")->value();
-    ModoControleLuz novoModo = LUZ_AUTOMATICA;
-    if (modo == "ligada") novoModo = LUZ_MANUAL_LIGADA;
-    else if (modo == "desligada") novoModo = LUZ_MANUAL_DESLIGADA;
-    definirModoControleLuzRemoto(novoModo);
-    request->send(200, "application/json", construirStatusJson());
-  });
-
-  server.on("/api/acesso", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    liberarAcessoRemoto();
-    request->send(200, "application/json", construirStatusJson());
-  });
-
-  // Últimas N linhas do histórico, em JSON, pro dashboard desenhar o
-  // gráfico. Parâmetro opcional ?limite=N (padrão 144 = ~24h, a 1
-  // amostra/10min); teto de segurança em 300 amostras por requisição.
-  server.on("/api/historico/json", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    int limite = 144;
-    if (request->hasParam("limite")) {
-      limite = request->getParam("limite")->value().toInt();
-    }
-    if (limite <= 0) limite = 144;
-    if (limite > 300) limite = 300;
-    request->send(200, "application/json", construirHistoricoJson(limite));
-  });
-
-  // Baixa o arquivo CSV completo (até HISTORICO_MAX_LINHAS linhas) — abre
-  // direto no Excel/Planilhas Google.
-  server.on("/api/historico/csv", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!autenticado(request)) return;
-    if (!historicoDisponivel || !LittleFS.exists(HISTORICO_ARQUIVO)) {
-      request->send(404, "text/plain", "historico indisponivel");
-      return;
-    }
-    AsyncWebServerResponse *response = request->beginResponse(LittleFS, HISTORICO_ARQUIVO, "text/csv");
-    response->addHeader("Content-Disposition", "attachment; filename=historico_cultivo.csv");
-    request->send(response);
-  });
-
-  server.onNotFound([](AsyncWebServerRequest *request) {
-    request->send(404, "text/plain", "nao encontrado");
-  });
-
-  server.begin();
-  Serial.println("Servidor web iniciado (com autenticacao)");
-}
 
 // ---------------- SETUP ----------------
 // OLED, RTC e SHT40 dividem o MESMO barramento I2C (SDA_PIN/SCL_PIN). Um
@@ -3488,14 +2797,9 @@ void setup() {
   if (wifiConectado) {
     mensagemInicializacao("Sincronizando", "hora via NTP");
     horaSincronizada = sincronizarHoraNTP();
-    iniciarMDNS();
+    iniciarMDNS(); // só p/ anúncio de OTA agora — não há mais dashboard local
     iniciarOTA();
   }
-
-  // Servidor web local: sobe independente do WiFi ter conectado agora ou não
-  // (fica escutando na porta 80 e passa a responder assim que houver IP —
-  // inclusive depois de uma reconexão automática mais tarde).
-  configurarServidorWeb();
 
   if (wifiConectado && horaSincronizada) {
     mensagemInicializacao("Sistema OK", "Hora sincronizada");
@@ -3509,19 +2813,12 @@ void setup() {
   delay(1200);
 
   if (wifiConectado) {
-    // Mostra o endereço do dashboard por alguns segundos no boot — primeiro
-    // o nome mDNS (mais fácil de digitar/lembrar), depois o IP numérico
-    // (necessário em situações onde ".local" não resolve — Windows sem
-    // Bonjour instalado, PlatformIO fazendo upload OTA, etc.). Os dois
-    // também continuam disponíveis no Serial, como antes.
-    mensagemInicializacao("Dashboard:", String(MDNS_HOSTNAME) + ".local");
-    Serial.print("Dashboard disponivel em: http://");
-    Serial.print(MDNS_HOSTNAME);
-    Serial.println(".local/ (ou pelo IP abaixo)");
-    Serial.print("IP: http://");
+    // Mostra o IP por alguns segundos no boot — não tem mais dashboard
+    // local, mas o IP ainda é útil pra apontar o upload OTA
+    // (platformio.ini -> upload_port) e pra conferir no Serial que a rede
+    // está OK.
+    Serial.print("WiFi conectado, IP: ");
     Serial.println(WiFi.localIP());
-    delay(1800);
-
     mensagemInicializacao("IP:", WiFi.localIP().toString());
     delay(1800);
   }
@@ -3566,8 +2863,7 @@ void loop() {
   atualizarHistorico();        // grava uma linha no CSV local a cada 10 min (cache de 7 dias)
   atualizarEnvioLeituraHostinger(); // envia a leitura atual pra Hostinger a cada 1 min
   atualizarFilaComandosHostinger(); // envia comandos enfileirados (rele/trava/modo/luz) pra Hostinger
-  // (o dashboard web local não precisa de nenhuma chamada aqui — o ESPAsyncWebServer
-  // roda por trás via AsyncTCP, então já responde sozinho a qualquer momento)
+  atualizarComandosPendentesHostinger(); // busca comandos vindos dos botoes do dashboard web (a cada 4s)
 
   // Mantém relógio/temporizadores visíveis atualizados mesmo sem mudança de sensor
   if (estadoOLED != OLED_DESCANSO && millis() - ultimoRefreshPeriodicoOLED >= INTERVALO_REFRESH_PERIODICO_MS) {

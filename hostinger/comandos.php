@@ -48,6 +48,8 @@ try {
     exit;
 }
 
+header('Content-Type: application/json; charset=utf-8');
+
 $limite = isset($_GET['limite']) ? max(1, min(500, (int) $_GET['limite'])) : 100;
 
 try {
@@ -62,10 +64,30 @@ try {
 
     $dados = $stmt->fetchAll();
 
+    // Modo de cultivo atual — pego pelo ultimo comando "modo_cultivo"
+    // registrado, independente do LIMIT acima (a mudanca de modo pode ter
+    // ficado fora da janela de "$limite" comandos mais recentes se muitos
+    // outros comandos foram enviados depois dela). Usado pelo dashboard
+    // pra sincronizar a "roda de eventos" com a janela de luz certa
+    // (vegetativo: 16h-10h / floracao: 19h-07h).
+    $stmtModo = db()->prepare(
+        "SELECT valor
+         FROM comandos_sistema
+         WHERE tipo = 'modo_cultivo'
+         ORDER BY criado_em DESC
+         LIMIT 1"
+    );
+    $stmtModo->execute();
+    $modoAtual = $stmtModo->fetchColumn();
+
     if (ob_get_length()) {
         ob_clean();
     }
-    echo json_encode(['ok' => true, 'dados' => $dados]);
+    echo json_encode([
+        'ok' => true,
+        'dados' => $dados,
+        'modo_atual' => $modoAtual !== false ? $modoAtual : null,
+    ]);
 } catch (Throwable $e) {
     if (ob_get_length()) {
         ob_clean();

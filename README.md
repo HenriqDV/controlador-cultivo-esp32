@@ -1,51 +1,53 @@
 # 🌿 Cultivo — Automação para Estufa/Grow Tent (ESP32-S3)
 
-Sistema de automação para cultivo indoor baseado em **ESP32-S3**, com controle de iluminação por fotoperíodo, exaustão/ventilação, trava de acesso, monitoramento ambiental (interno e externo) e umidade do solo, display **OLED SSD1306** local e **dashboard web embutido** — sem depender de nenhum serviço de terceiros para o controle remoto.
+Sistema de automação para cultivo indoor baseado em **ESP32-S3**, com controle de iluminação por fotoperíodo, exaustão/ventilação, trava de acesso, monitoramento ambiental (interno e externo) e umidade do solo, display **OLED SSD1306** local e **dashboard web remoto** (hospedado na Hostinger, protegido por login) — o ESP32 não sobe mais nenhum servidor HTTP próprio.
 
-> Este documento descreve a **versão atual (v1)** do projeto e resume as mudanças em relação à primeira versão (v0), publicada anteriormente como *GrowController ESP32*.
+> Este documento descreve a **versão atual (v2)** do projeto. A v1 substituiu o Blynk por um dashboard web embutido no próprio ESP32; a v2 removeu esse servidor local (instável sob uso real — reiniciava o dispositivo ao ser acessado) e migrou todo o controle para o dashboard da Hostinger, com login e fila de comandos.
 
 ---
 
-## 📋 O que mudou da v0 para a v1
+## 📋 O que mudou da v1 para a v2
 
-A v1 é uma reformulação significativa da automação original. A mudança mais visível é a **saída do Blynk como camada de controle remoto**, substituído por um **dashboard web hospedado no próprio ESP32**. Além disso, o projeto passou a ser estruturado como um projeto **PlatformIO + Wokwi**, em vez de um sketch único `.ino`.
+A v2 reformula o **canal de controle remoto**: o dashboard web que rodava embutido no próprio ESP32 (introduzido na v1) foi **removido** depois de se mostrar instável em uso real, e todo o controle passou a ser feito por um backend próprio hospedado na Hostinger, com login e fila de comandos.
 
-| Área | v0 (GrowController) | v1 (Cultivo) |
+| Área | v1 (Cultivo) | v2 (Cultivo) |
 |---|---|---|
-| Estrutura do projeto | Sketch único `.ino` (Arduino IDE) | Projeto **PlatformIO** (`platformio.ini`, `wokwi.toml`, `diagram.json`, `src/main.cpp`) |
-| Controle remoto | App **Blynk** (nuvem de terceiros) | **Dashboard web local**, servido pelo próprio ESP32 (HTML/CSS/JS embutidos) |
-| Autenticação remota | Token do Blynk | **HTTP Basic Auth** + bloqueio temporário após tentativas de login incorretas |
-| Histórico de dados | Não existia | **Log local em CSV** (LittleFS, cache de 7 dias) + exportação e gráfico no dashboard |
-| Backup remoto de dados | Não existia | Envio periódico de leituras e comandos para um **backend próprio (Hostinger)** |
-| Atualização de firmware | Somente via cabo USB | **OTA** (rede WiFi) com senha própria e ambiente dedicado no `platformio.ini` |
-| Acesso por nome | Não existia | **mDNS** (`http://cultivo.local/`) |
-| Indicador de status (NeoPixel) | Cor por estado de conexão (WiFi/Blynk) | Cor pela **zona de VPD** (déficit de pressão de vapor) do ar interno |
-| Cálculo de VPD | Não existia | Calculado a partir de temperatura/umidade internas e usado no LED e no dashboard |
-| Override manual da luz | Não sobrevivia a reinícios | **Persistido na NVRAM do RTC**, com horário absoluto de expiração |
-| Mapa de relés | 8 relés fixos (2 automáticos + 6 manuais) | Mapa revisado (ver tabela abaixo), com 1 posição reservada sem uso |
-| Robustez do barramento I2C | Sem tratamento especial | **Rotina de recuperação do barramento I2C** antes da inicialização |
-| Fonte de hora | RTC como prioridade, NTP como reforço | **NTP como prioridade** (uma vez sincronizado na sessão), RTC como reserva |
+| Controle remoto | **Dashboard web local**, servido pelo próprio ESP32 (`ESPAsyncWebServer`/`AsyncTCP`, HTML/CSS/JS embutidos) | **Dashboard web na Hostinger** (PHP + MySQL), fora do ESP32 — pasta `hostinger/` |
+| Modelo de comunicação | **Push**: o navegador falava direto com o ESP32, via rotas próprias (`/api/rele`, `/api/modo_cultivo`, `/api/luz_manual`, `/api/acesso`) | **Pull**: o ESP32 consulta (poll) comandos pendentes na Hostinger a cada ~4s; o navegador nunca fala com o ESP32 |
+| Estabilidade | `ESPAsyncWebServer`/`AsyncTCP` **instável sob uso real** — o dispositivo reiniciava sozinho ao acessar o dashboard | Servidor HTTP local **removido**; o ESP32 só faz requisições HTTPS de saída |
+| Acesso fora da rede WiFi local | Exigia VPN/túnel ou porta aberta no roteador | **Nativo** — a Hostinger é acessível de qualquer lugar com internet, sem abrir porta nenhuma no ESP32/roteador |
+| Autenticação do painel | **HTTP Basic Auth** | **Login com sessão** (cookie `secure`/`httponly`), senha com hash bcrypt, bloqueio de IP persistido no banco após tentativas incorretas |
+| Backend Hostinger | **Opcional** — só recebia backup/histórico de leituras e comandos | **Obrigatório** — é o único canal de controle remoto e a fonte de dados do dashboard |
+| Acesso por nome (mDNS) | `cultivo.local` apontava para o dashboard embutido no ESP32 | mDNS mantido **só para anunciar o serviço de OTA** — não há mais dashboard local para apontar |
+| Dependências do firmware | Incluía `AsyncTCP`/`ESPAsyncWebServer` | Essas libs **saíram** do `platformio.ini` — não sobra nenhum servidor HTTP no ESP32 |
 
-Essas mudanças tornam o sistema **independente de serviços externos para operar no dia a dia** (o dashboard funciona 100% na rede local, sem internet), ao mesmo tempo em que mantêm um backend remoto opcional para histórico estendido.
+Vale notar o trade-off: os controles **locais** (menu no OLED, botão físico de acesso) continuam funcionando **normalmente sem internet** em qualquer versão — eles agem direto no relé. O que passou a depender de internet foi só o **controle remoto**: sem WiFi/Hostinger, dá pra operar o sistema fisicamente na frente do equipamento, mas não pelo dashboard.
 
 ---
 
 ## Funcionalidades
 
-- **Controle automático de iluminação** por fotoperíodo, com dois modos de cultivo (Vegetação e Floração)
+- **Controle automático de iluminação** por fotoperíodo, com dois modos de cultivo fixos no firmware:
+  - **Vegetação**: luz ligada das 16h às 10h (18h de luz / 6h de escuro)
+  - **Floração**: luz ligada das 19h às 7h (12h de luz / 12h de escuro)
 - **Override manual da luz** (Automático / Ligada / Desligada) que não interrompe o cálculo do fotoperíodo e expira sozinho após 30 minutos — persistido entre reinícios
 - **Monitoramento ambiental interno e externo**, com sensores independentes dentro e fora da estufa
 - **Sensor de umidade do solo** com calibração por faixa de leitura bruta e média de múltiplas amostras
 - **Cálculo de VPD (Déficit de Pressão de Vapor)**, refletido em tempo real na cor do LED NeoPixel e no dashboard
 - **8 relés** para luz, exaustores, ventiladores, entradas de ar e trava de acesso
-- **Trava eletrônica de acesso** com liberação temporizada, via botão físico ou dashboard
+- **Trava eletrônica de acesso** com liberação temporizada de 3 segundos, acionável tanto pelo botão físico dedicado quanto pelo dashboard — os dois caminhos chamam a mesma rotina e geram o mesmo evento no histórico
 - **Display OLED SSD1306 (128x64)** com tela de descanso animada, tela de informações e menu de configuração navegável por botão físico
-- **Dashboard web local** responsivo (mobile e desktop), protegido por autenticação, com controle de relés, modo de cultivo, luz manual, liberação de acesso, gráfico de histórico e exportação de CSV
-- **Histórico local em LittleFS**, com rotação automática (cache de 7 dias) e envio periódico opcional para um backend remoto
+- **Dashboard web remoto** (Hostinger — marca "Smart Demetra"), responsivo (mobile e desktop), protegido por login, organizado em 3 abas:
+  - **Início**: leituras atuais (temperatura/umidade interna e externa, solo), contagem regressiva até a próxima troca de luz, barra de VPD com zona destacada e barra de umidade do solo com faixa ideal (50%–60%)
+  - **Comandos**: modo de cultivo, luz manual, liberação de acesso e toggles dos relés manuais — cada ação vai para uma fila que o ESP32 consulta por polling
+  - **Histórico**: gráficos de temperatura e umidade (interna x externa) com seletor de período (24h / 7 dias / 30 dias — os períodos de 7 e 30 dias vêm agregados por hora no banco), roda de eventos das últimas 24h e lista dos eventos mais recentes
+- **Atualização automática do dashboard** a cada 1 minuto (mesmo ritmo do envio de leituras do ESP32); a contagem regressiva da luz é recalculada localmente a cada 1 segundo
+- **Histórico local em LittleFS** (cache interno de 7 dias) + histórico completo e fila de comandos na Hostinger
 - **Persistência entre quedas de energia**: relés manuais, modo de cultivo e override de luz (com prazo de expiração) gravados na NVRAM com bateria do RTC DS1307
 - **Atualização de firmware por OTA** (rede WiFi), sem necessidade de cabo USB após a primeira gravação
 - **Sincronização de hora via NTP** com múltiplos servidores de fallback e reserva no RTC
 - **Reconexão automática** de WiFi com estratégia de backoff
+- **Entrega de comandos sem duplicidade**: `comandos_pendentes.php` usa transação com `FOR UPDATE` ao marcar comandos como entregues, evitando que o mesmo comando seja aplicado duas vezes se o ESP32 fizer poll duas vezes quase ao mesmo tempo (ex.: reinício no meio de um ciclo)
 - **Modo de simulação Wokwi** para testes completos sem hardware físico
 
 ---
@@ -95,48 +97,63 @@ Todos os relés são **ativos em nível baixo** por padrão (`RELE_ATIVO_EM_BAIX
 |---|---|---|
 | Buzzer | 17 | Passivo, acionamento não bloqueante |
 | Botão de menu OLED | 5 | `INPUT_PULLUP` |
-| Botão de liberação de acesso | 19 | `INPUT_PULLUP` |
+| Botão de liberação de acesso | 19 | `INPUT_PULLUP` — libera a trava por 3 segundos ao pressionar |
 | LED NeoPixel | 4 (simulação) / 48 (hardware — LED embutido do ESP32-S3) | Indicador de zona de VPD |
 
 ---
 
-## Dashboard Web Local
+## Dashboard Web (Hostinger)
 
-Substitui completamente a integração com o Blynk. Com o ESP32 conectado à rede WiFi, o painel fica disponível em:
+Desde a v2, **não existe mais servidor HTTP no ESP32**. Todo o controle e monitoramento remoto é feito pelo dashboard hospedado na Hostinger (pasta `hostinger/`), acessível de qualquer lugar com internet:
 
 ```
-http://cultivo.local/          (via mDNS, recomendado)
-http://<IP-do-dispositivo>/    (alternativa, exibida no OLED e no Serial durante o boot)
+https://SEU-DOMINIO/index.php
 ```
 
-O acesso exige **usuário e senha** (HTTP Basic Auth). As credenciais padrão (`admin` / `2009`) **devem ser alteradas** antes de qualquer uso real, assim como a senha de OTA — ambas ficam no topo do `main.cpp`. Após 5 tentativas de login incorretas, o dashboard fica temporariamente bloqueado por 5 minutos.
+O acesso exige **login** (usuário e senha, com hash bcrypt — configurado em `hostinger/config.php`, ver `WEB_LOGIN_USUARIO`/`WEB_LOGIN_SENHA_HASH`). Após 5 tentativas incorretas, o IP fica bloqueado por **2 minutos** (`LOGIN_MAX_TENTATIVAS`/`LOGIN_BLOQUEIO_MINUTOS` em `config.php`) — bloqueio persistido no banco (tabela `login_tentativas`), não expira ao trocar de sessão/cookie.
+
+### Como o controle chega até o ESP32
+
+Como o dispositivo não tem mais servidor próprio, os botões do dashboard **não falam direto com o ESP32** — eles gravam um comando numa fila (`comandos_pendentes`, no banco da Hostinger), e o ESP32 **consulta essa fila periodicamente** (a cada ~4 segundos, via HTTPS, autenticado por API key) e aplica o que encontrar. Essa troca de modelo (empurrar → puxar) é o que elimina a necessidade de abrir qualquer porta no ESP32 ou na rede local, e funciona de qualquer lugar com internet, não só na rede WiFi da estufa.
 
 ### O que o painel oferece
 
-- Temperatura, umidade (interna e externa), umidade do solo e VPD em tempo real
-- Controle do modo de cultivo (Vegetativo / Floração)
-- Controle da luz (Automático / Ligar / Desligar)
+O dashboard (marca "Smart Demetra") é dividido em 3 abas, navegáveis pela barra lateral (menu hambúrguer no mobile):
+
+**Início** — visão geral em tempo real:
+- Cards de temperatura/umidade interna e externa, umidade do solo e contagem regressiva até a próxima troca de luz ("Luz do cultivo")
+- Barra de VPD com marcador de zona atual (mesmas faixas/cores do LED NeoPixel do firmware)
+- Barra de umidade do solo com indicação da faixa ideal (50%–60%)
+
+**Comandos** — controle remoto (grava na fila que o ESP32 consulta):
+- Modo de cultivo (Vegetativo / Floração), com indicação do horário de cada um
+- Luz (Automático / Ligar / Desligar)
+- Liberação da trava de acesso (pulso de 3 segundos, igual ao botão físico)
 - Toggles para os relés manuais (Desumidificador, Ventilador, Entradas de Ar, Saída de Ar)
-- Liberação da trava de acesso por 3 segundos
-- Gráfico das últimas 24h de temperatura, alimentado pelo histórico local
-- Exportação do histórico completo em CSV
 
-### Endpoints HTTP
+**Histórico** — dados acumulados:
+- Seletor de período: **24 horas** (leituras cruas, 1/min), **1 semana** e **1 mês** (agregadas por hora no banco, para não sobrecarregar o navegador)
+- Gráficos separados de temperatura e de umidade, cada um comparando interna x externa
+- **Relógio de eventos**: roda de 24h sincronizada com o modo de cultivo ativo, mostrando acionamentos da porta, do ventilador e da saída de ar, e há quanto tempo cada um está no estado atual
+- Lista dos eventos das últimas 24h
 
-Todas as rotas abaixo exigem autenticação:
+O painel inteiro se atualiza sozinho a cada 1 minuto (mesmo ritmo do envio de leituras do firmware); a contagem regressiva da luz é recalculada localmente a cada 1 segundo, sem precisar de nova consulta ao servidor.
 
-| Rota | Método | Função |
-|---|---|---|
-| `/` | GET | Página do dashboard |
-| `/api/status` | GET | Estado atual do sistema, em JSON |
-| `/api/rele?id=&estado=` | GET | Liga/desliga um relé manual |
-| `/api/modo_cultivo?valor=` | GET | Define o modo de cultivo (`vegetativo`/`floracao`) |
-| `/api/luz_manual?modo=` | GET | Define o override de luz (`auto`/`ligada`/`desligada`) |
-| `/api/acesso` | GET | Libera a trava de acesso por 3 segundos |
-| `/api/historico/json?limite=` | GET | Últimas N leituras do histórico, em JSON (padrão 144, teto 300) |
-| `/api/historico/csv` | GET | Download do histórico completo em CSV |
+### Endpoints HTTP (hostinger/)
 
-> ⚠️ HTTP Basic Auth **não é criptografado**. Para acesso fora da rede local, use um túnel/proxy com HTTPS (ex.: Cloudflare Tunnel) na frente — nunca exponha a porta 80 direto para a internet.
+| Rota | Método | Autenticação | Função |
+|---|---|---|---|
+| `index.php` | GET | Login (sessão) | Página do dashboard |
+| `login.php` / `logout.php` | GET/POST | — | Entrar/sair |
+| `dados.php` | GET | Pública (leitura) | Leituras de ambiente (histórico). Aceita `?periodo=24h\|7d\|30d` (padrão `24h`) |
+| `comandos.php` | GET | Pública (leitura) | Eventos executados + modo de cultivo atual. Aceita `?limite=N` (1–500, padrão 100) |
+| `enviar_comando.php` | POST | Login (sessão) | Grava um comando na fila (botões do dashboard) |
+| `comandos_pendentes.php` | GET | API key (dispositivo) | ESP32 busca e "retira" (até 20 por vez, com trava transacional `FOR UPDATE` contra entrega duplicada) comandos pendentes da fila |
+| `registrar_leitura.php` | POST | API key (dispositivo) | ESP32 envia uma leitura de sensores |
+| `registrar_comando.php` | POST | API key (dispositivo) | ESP32 confirma um comando já executado (para o histórico/roda de eventos) |
+
+> ⚠️ O login usa cookie de sessão com a flag `secure` — a Hostinger precisa estar servindo por **HTTPS** (padrão na maioria dos planos).
+> ⚠️ `dados.php` e `comandos.php` são endpoints de leitura pública (sem API key nem login) — pensados para alimentar o dashboard sem fricção, mas isso significa que qualquer pessoa com a URL consegue ler leituras e eventos. Se isso for uma preocupação, considere adicionar autenticação a esses dois endpoints também.
 
 ---
 
@@ -158,10 +175,8 @@ O LED mantém um leve efeito de "respiração" no brilho, sem nunca apagar por c
 
 ## Histórico de Dados
 
-- **Local (LittleFS):** uma leitura completa é gravada em CSV a cada 10 minutos, com limite de 1008 linhas (~7 dias) — ao ultrapassar o limite, as linhas mais antigas são descartadas automaticamente.
-- **Remoto (opcional):** leituras são enviadas a cada 1 minuto para um backend HTTP próprio (configurável via `HOSTINGER_BASE_URL`/`HOSTINGER_API_KEY`), e comandos (mudanças de relé, modo, acesso) são enfileirados e reenviados de forma resiliente em caso de falha de rede.
-
-O backend remoto é totalmente opcional — o dashboard local continua funcionando de forma independente mesmo sem internet.
+- **Local (LittleFS):** uma leitura completa é gravada em CSV a cada 10 minutos, com limite de 1008 linhas (~7 dias) — ao ultrapassar o limite, as linhas mais antigas são descartadas automaticamente. Serve como registro interno; sem servidor local, não há mais como baixar esse CSV diretamente do dispositivo.
+- **Remoto (Hostinger):** leituras são enviadas a cada 1 minuto para o backend próprio (`HOSTINGER_BASE_URL`/`HOSTINGER_API_KEY`), e comandos executados são enfileirados e reenviados de forma resiliente em caso de falha de rede. Desde a v2, o backend remoto **deixou de ser opcional**: é ele quem alimenta o dashboard (único ponto de controle/monitoramento remoto) e a fila de comandos pendentes que o ESP32 consulta. A aba Histórico do dashboard consulta esses dados via `dados.php`, que serve leituras cruas (1/min) para o período de 24h e leituras agregadas por hora para 7 e 30 dias.
 
 ---
 
@@ -221,10 +236,9 @@ Gerenciadas via `platformio.ini`:
 - `DHT sensor library`
 - `Adafruit NeoPixel`
 - `Adafruit SHT4x Library` (hardware físico)
-- `ESP32Async/AsyncTCP`
-- `ESP32Async/ESPAsyncWebServer`
+- `bblanchon/ArduinoJson` (interpreta a resposta da fila de comandos pendentes da Hostinger)
 
-> O Blynk **não é mais uma dependência** do projeto.
+> O Blynk **não é mais uma dependência** do projeto. Desde a v2, `AsyncTCP`/`ESPAsyncWebServer` também saíram — o ESP32 não sobe mais servidor HTTP próprio.
 
 ---
 
@@ -236,14 +250,22 @@ Gerenciadas via `platformio.ini`:
 const char* ssid = "SUA_REDE";
 const char* password = "SUA_SENHA";
 
-const char* WEB_AUTH_USER = "admin";   // TROCAR
-const char* WEB_AUTH_PASS = "2009";    // TROCAR
-
 const char* OTA_PASSWORD = "#########"; // TROCAR
 
-const char* HOSTINGER_BASE_URL = "Link_do_site"; // opcional
-const char* HOSTINGER_API_KEY  = "API Key";      // opcional
+const char* HOSTINGER_BASE_URL = "Link_do_site"; // necessário — é o único canal de controle remoto
+const char* HOSTINGER_API_KEY  = "API Key";      // necessário
 ```
+
+E no lado da Hostinger, em `hostinger/config.php`:
+
+```php
+const API_KEY = '############';                 // mesma API Key do firmware acima
+const WEB_LOGIN_USUARIO = 'admin';               // TROCAR
+const WEB_LOGIN_SENHA_HASH = '$2y$10$...';       // TROCAR — gere com:
+// php -r "echo password_hash('SUA_SENHA_AQUI', PASSWORD_DEFAULT), PHP_EOL;"
+```
+
+Antes do primeiro uso, rode `hostinger/sql/schema.sql` no banco (cria as tabelas de leituras, comandos, fila de comandos pendentes e tentativas de login).
 
 E calibre o sensor de solo com os valores reais do seu hardware:
 

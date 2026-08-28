@@ -48,6 +48,8 @@ try {
     exit;
 }
 
+header('Content-Type: application/json; charset=utf-8');
+
 // Periodo do grafico: 24h usa leituras cruas (1/min); 7d e 30d agregam por
 // hora no proprio SQL (senao 30 dias a 1 leitura/min viraria ~43 mil linhas
 // por resposta - pesado demais pro navegador e sem ganho nenhum visual).

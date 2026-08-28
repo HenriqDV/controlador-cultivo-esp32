@@ -48,6 +48,8 @@ try {
     exit;
 }
 
+header('Content-Type: application/json; charset=utf-8');
+
 require_api_key();
 $data = read_json_body();
 
