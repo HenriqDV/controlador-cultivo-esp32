@@ -1,0 +1,526 @@
+{
+  "version": 1,
+  "author": "Cultivo",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-s3-devkitc-1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled1",
+      "top": -260,
+      "left": 250,
+      "attrs": {
+        "i2cAddress": "0x3c"
+      }
+    },
+    {
+      "type": "wokwi-ds1307",
+      "id": "rtc1",
+      "top": -100,
+      "left": 250,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": 60,
+      "left": 250,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht2",
+      "top": 220,
+      "left": 250,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot1",
+      "top": 380,
+      "left": 250,
+      "attrs": {
+        "value": "50"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer1",
+      "top": 540,
+      "left": 250,
+      "attrs": {
+        "volume": "0.2"
+      }
+    },
+    {
+      "type": "wokwi-neopixel",
+      "id": "neo1",
+      "top": 700,
+      "left": 250,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn1",
+      "top": -260,
+      "left": 480,
+      "attrs": {
+        "color": "blue"
+      }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn2",
+      "top": -100,
+      "left": 480,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay0",
+      "top": 60,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt0",
+      "top": 20,
+      "left": 700,
+      "attrs": {
+        "text": "Luz (GPIO42)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay1",
+      "top": 200,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt1",
+      "top": 160,
+      "left": 700,
+      "attrs": {
+        "text": "Vazio1 (GPIO41)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay2",
+      "top": 340,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt2",
+      "top": 300,
+      "left": 700,
+      "attrs": {
+        "text": "Ventilador (GPIO40)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay3",
+      "top": 480,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt3",
+      "top": 440,
+      "left": 700,
+      "attrs": {
+        "text": "Vazio2 (GPIO39)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay4",
+      "top": 620,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt4",
+      "top": 580,
+      "left": 700,
+      "attrs": {
+        "text": "EntradaAr1 (GPIO38)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay5",
+      "top": 760,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt5",
+      "top": 720,
+      "left": 700,
+      "attrs": {
+        "text": "EntradaAr2 (GPIO37)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay6",
+      "top": 900,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt6",
+      "top": 860,
+      "left": 700,
+      "attrs": {
+        "text": "Trava (GPIO36)"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay7",
+      "top": 1040,
+      "left": 720,
+      "attrs": {},
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "txt7",
+      "top": 1000,
+      "left": 700,
+      "attrs": {
+        "text": "SaidaAr (GPIO35)"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "oled1:SDA",
+      "esp:8",
+      "green",
+      []
+    ],
+    [
+      "oled1:SCL",
+      "esp:9",
+      "yellow",
+      []
+    ],
+    [
+      "oled1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "oled1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "rtc1:SDA",
+      "esp:8",
+      "green",
+      []
+    ],
+    [
+      "rtc1:SCL",
+      "esp:9",
+      "yellow",
+      []
+    ],
+    [
+      "rtc1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "rtc1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "dht1:SDA",
+      "esp:15",
+      "green",
+      []
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "dht2:SDA",
+      "esp:16",
+      "green",
+      []
+    ],
+    [
+      "dht2:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "dht2:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot1:SIG",
+      "esp:6",
+      "blue",
+      []
+    ],
+    [
+      "pot1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "buzzer1:1",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "buzzer1:2",
+      "esp:17",
+      "orange",
+      []
+    ],
+    [
+      "neo1:DIN",
+      "esp:4",
+      "purple",
+      []
+    ],
+    [
+      "neo1:VDD",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "neo1:VSS",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn1:1.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn1:2.l",
+      "esp:5",
+      "cyan",
+      []
+    ],
+    [
+      "btn2:1.l",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "btn2:2.l",
+      "esp:19",
+      "cyan",
+      []
+    ],
+    [
+      "relay0:IN",
+      "esp:42",
+      "green",
+      []
+    ],
+    [
+      "relay0:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay0:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay1:IN",
+      "esp:41",
+      "green",
+      []
+    ],
+    [
+      "relay1:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay2:IN",
+      "esp:40",
+      "green",
+      []
+    ],
+    [
+      "relay2:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay2:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay3:IN",
+      "esp:39",
+      "green",
+      []
+    ],
+    [
+      "relay3:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay3:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay4:IN",
+      "esp:38",
+      "green",
+      []
+    ],
+    [
+      "relay4:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay4:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay5:IN",
+      "esp:37",
+      "green",
+      []
+    ],
+    [
+      "relay5:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay5:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay6:IN",
+      "esp:36",
+      "green",
+      []
+    ],
+    [
+      "relay6:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay6:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay7:IN",
+      "esp:35",
+      "green",
+      []
+    ],
+    [
+      "relay7:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay7:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ]
+  ],
+  "dependencies": {}
+}
