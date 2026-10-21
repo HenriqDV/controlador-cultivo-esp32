@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 require __DIR__ . '/config.php';
+require __DIR__ . '/auth.php';
 
 iniciar_sessao();
+auth_esquecer_cookie();
 $_SESSION = [];
 if (ini_get('session.use_cookies')) {
     $params = session_get_cookie_params();

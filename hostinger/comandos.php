@@ -64,12 +64,7 @@ try {
 
     $dados = $stmt->fetchAll();
 
-    // Modo de cultivo atual — pego pelo ultimo comando "modo_cultivo"
-    // registrado, independente do LIMIT acima (a mudanca de modo pode ter
-    // ficado fora da janela de "$limite" comandos mais recentes se muitos
-    // outros comandos foram enviados depois dela). Usado pelo dashboard
-    // pra sincronizar a "roda de eventos" com a janela de luz certa
-    // (vegetativo: 16h-10h / floracao: 19h-07h).
+    // Último modo de cultivo (fora do LIMIT), usado pela janela de luz do dashboard.
     $stmtModo = db()->prepare(
         "SELECT valor
          FROM comandos_sistema

@@ -1,14 +1,7 @@
 <?php
 declare(strict_types=1);
 
-// Consultado pelo ESP32 (ver atualizarComandosPendentesHostinger() no
-// firmware) a cada poucos segundos. Devolve os comandos com status
-// 'pendente' (gravados por enviar_comando.php, a partir dos botões do
-// dashboard web) e JÁ marca essas linhas como 'entregue' na mesma
-// requisição — não ficam disponíveis de novo numa próxima consulta.
-// Protegido por X-API-Key (mesma chave usada por registrar_leitura.php e
-// registrar_comando.php) — este endpoint é pro dispositivo, não pro
-// navegador.
+// ESP32 (X-API-Key): devolve os comandos pendentes e já os marca como entregues.
 
 ob_start();
 ini_set('display_errors', '0');
@@ -43,6 +36,7 @@ set_error_handler(function (int $severity, string $message, string $file = '', i
 
 try {
     require __DIR__ . '/config.php';
+    require __DIR__ . '/migracoes.php';
 } catch (Throwable $e) {
     if (ob_get_length()) {
         ob_clean();
@@ -59,15 +53,13 @@ try {
 
 header('Content-Type: application/json; charset=utf-8');
 
-require_api_key();
+exigir_dispositivo(); // token do hardware ou API_KEY (modo legado)
 
 try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    // FOR UPDATE trava as linhas selecionadas até o commit — protege contra
-    // duas consultas quase simultâneas (ex: ESP32 reiniciando no meio de um
-    // ciclo de poll) entregarem o mesmo comando duas vezes.
+    // FOR UPDATE evita entregar o mesmo comando duas vezes em polls simultâneos.
     $stmt = $pdo->prepare(
         "SELECT id, tipo, alvo, valor
          FROM comandos_pendentes

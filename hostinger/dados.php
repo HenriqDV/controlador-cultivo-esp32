@@ -34,6 +34,7 @@ set_error_handler(function (int $severity, string $message, string $file = '', i
 
 try {
     require __DIR__ . '/config.php';
+    require __DIR__ . '/migracoes.php';
 } catch (Throwable $e) {
     if (ob_get_length()) {
         ob_clean();
@@ -50,9 +51,7 @@ try {
 
 header('Content-Type: application/json; charset=utf-8');
 
-// Periodo do grafico: 24h usa leituras cruas (1/min); 7d e 30d agregam por
-// hora no proprio SQL (senao 30 dias a 1 leitura/min viraria ~43 mil linhas
-// por resposta - pesado demais pro navegador e sem ganho nenhum visual).
+// 24h: leituras cruas. 7d/30d: médias por hora.
 $periodosValidos = [
     '24h' => ['horas' => 24, 'agrupar' => false],
     '7d' => ['horas' => 24 * 7, 'agrupar' => true],
@@ -61,14 +60,14 @@ $periodosValidos = [
 $periodo = isset($_GET['periodo']) && isset($periodosValidos[$_GET['periodo']]) ? $_GET['periodo'] : '24h';
 $config = $periodosValidos[$periodo];
 
+// VPD gravado ou, em leituras antigas, calculado na hora.
+$colunaVpd = garantir_schema_v2()
+    ? 'COALESCE(vpd, ' . SQL_FORMULA_VPD . ')'
+    : SQL_FORMULA_VPD;
+
 try {
     if ($config['agrupar']) {
-        // Agrupa pela hora do DISPOSITIVO (dispositivo_timestamp, ja no fuso
-        // certo - GMT-3 - porque o firmware grava assim), nao pela hora que o
-        // servidor da Hostinger recebeu o dado (criado_em, que pode estar em
-        // outro fuso). Se por algum motivo uma leitura antiga nao tiver
-        // dispositivo_timestamp (RTC ainda nao sincronizado no boot), cai de
-        // volta pro criado_em so pra nao sumir da agregacao.
+        // Agrupa pela hora do dispositivo (GMT-3); usa criado_em se faltar.
         $stmt = db()->prepare(
             "SELECT
                 DATE_FORMAT(COALESCE(dispositivo_timestamp, criado_em), '%Y-%m-%d %H:00:00') AS criado_em,
@@ -77,7 +76,8 @@ try {
                 AVG(umid_interna) AS umid_interna,
                 AVG(temp_externa) AS temp_externa,
                 AVG(umid_externa) AS umid_externa,
-                AVG(solo_percentual) AS solo_percentual
+                AVG(solo_percentual) AS solo_percentual,
+                AVG($colunaVpd) AS vpd
              FROM leituras_ambiente
              WHERE criado_em >= NOW() - INTERVAL ? HOUR
              GROUP BY DATE_FORMAT(COALESCE(dispositivo_timestamp, criado_em), '%Y-%m-%d %H:00:00')
@@ -88,17 +88,18 @@ try {
         $linhas = $stmt->fetchAll();
     } else {
         $stmt = db()->prepare(
-            'SELECT
+            "SELECT
                 criado_em,
                 dispositivo_timestamp,
                 temp_interna,
                 umid_interna,
                 temp_externa,
                 umid_externa,
-                solo_percentual
+                solo_percentual,
+                ROUND($colunaVpd, 2) AS vpd
              FROM leituras_ambiente
              WHERE criado_em >= NOW() - INTERVAL ? HOUR
-             ORDER BY criado_em ASC'
+             ORDER BY criado_em ASC"
         );
         $stmt->bindValue(1, $config['horas'], PDO::PARAM_INT);
         $stmt->execute();

@@ -1,17 +1,9 @@
 <?php
 declare(strict_types=1);
 
-// =============================================================================
-// TEMPLATE — este arquivo É pra commitar no git.
-// =============================================================================
-// Copie pra "config.php" (mesma pasta) e preencha os valores reais.
-// config.php está no .gitignore — nunca vai pro repositório, fica só no
-// servidor da Hostinger.
-//
-//   cp config.example.php config.php
-// =============================================================================
+// Modelo: copie para config.php (fora do git) e preencha.
 
-// Mesma API Key configurada em secrets.h (SECRET_HOSTINGER_API_KEY) no firmware
+// Mesma chave de SECRET_HOSTINGER_API_KEY no firmware
 const API_KEY = 'SUA_API_KEY_AQUI';
 
 const DB_HOST = 'localhost';
@@ -88,24 +80,29 @@ function nullable_datetime(array $data, string $key): ?string
     return $dt ? $dt->format('Y-m-d H:i:s') : null;
 }
 
-// ---------------- LOGIN DO DASHBOARD WEB ----------------
-// Usuário único (projeto de uso pessoal/hobby, não multi-usuário). A senha
-// NUNCA fica em texto puro — troque o hash abaixo gerando um novo com:
-//   php -r "echo password_hash('SUA_SENHA_AQUI', PASSWORD_DEFAULT), PHP_EOL;"
-//
-// TROQUE ISTO:
+// ---------------- LOGIN DO DASHBOARD ----------------
+// Administrador principal. No primeiro acesso ele vira uma conta no banco e a senha
+// pode ser trocada no painel; para recuperar o acesso, cole aqui um hash novo.
+// O limite de tentativas de login fica no auth.php. Gere o hash com:
+//   php -r "echo password_hash('SUA_SENHA', PASSWORD_DEFAULT), PHP_EOL;"
 const WEB_LOGIN_USUARIO = 'admin';
 const WEB_LOGIN_SENHA_HASH = 'COLE_AQUI_O_HASH_GERADO_PELO_COMANDO_ACIMA';
 
-const LOGIN_MAX_TENTATIVAS = 5;
-const LOGIN_BLOQUEIO_MINUTOS = 2;
+// Opcional: código de convite fixo para o cadastro. Sem esta linha, o admin define
+// o código em Configurações → Usuários (sem código, o cadastro fica desativado).
+// const CADASTRO_CODIGO_CONVITE = 'TROQUE-ESTE-CODIGO';
+
+// ---------------- TELEGRAM (opcional) ----------------
+// Token do bot criado no @BotFather. Também pode vir da variável de ambiente
+// TELEGRAM_BOT_TOKEN. Sem token, a seção Notificações fica desativada.
+// const TELEGRAM_BOT_TOKEN = '123456789:AAAA...';
 
 function ip_cliente(): string
 {
     return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
 
-// Sessão HTTP simples (cookie). Chamar sempre antes de mexer com $_SESSION.
+// Chamar antes de usar $_SESSION.
 function iniciar_sessao(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -126,40 +123,7 @@ function sessao_logada(): bool
     return !empty($_SESSION['logado']) && !empty($_SESSION['usuario']);
 }
 
-// Segundos restantes de bloqueio pro IP (0 = não bloqueado). Bloqueio fica
-// persistido no banco (não na sessão), pra valer mesmo se o navegador
-// trocar de cookie/sessão entre tentativas.
-function login_bloqueado_segundos(string $ip): int
-{
-    $stmt = db()->prepare('SELECT bloqueado_ate FROM login_tentativas WHERE ip = ?');
-    $stmt->execute([$ip]);
-    $bloqueadoAte = $stmt->fetchColumn();
-
-    if (!$bloqueadoAte) {
-        return 0;
-    }
-
-    $restante = strtotime($bloqueadoAte) - time();
-    return $restante > 0 ? $restante : 0;
-}
-
-function login_registrar_falha(string $ip): void
-{
-    $stmt = db()->prepare(
-        'INSERT INTO login_tentativas (ip, tentativas) VALUES (?, 1)
-         ON DUPLICATE KEY UPDATE tentativas = tentativas + 1,
-             bloqueado_ate = IF(tentativas + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), bloqueado_ate)'
-    );
-    $stmt->execute([$ip, LOGIN_MAX_TENTATIVAS, LOGIN_BLOQUEIO_MINUTOS]);
-}
-
-function login_limpar_tentativas(string $ip): void
-{
-    $stmt = db()->prepare('DELETE FROM login_tentativas WHERE ip = ?');
-    $stmt->execute([$ip]);
-}
-
-// Pra páginas HTML (index.php): manda pro login.php se não estiver logado.
+// Páginas HTML: redireciona para o login.
 function require_login_html(): void
 {
     if (!sessao_logada()) {
@@ -168,9 +132,7 @@ function require_login_html(): void
     }
 }
 
-// Pra endpoints JSON chamados pelo dashboard (enviar_comando.php): 401 em
-// vez de redirecionar, já que quem chama é fetch(), não o navegador
-// navegando de verdade.
+// Endpoints JSON (fetch): responde 401 em vez de redirecionar.
 function require_login_api(): void
 {
     if (!sessao_logada()) {

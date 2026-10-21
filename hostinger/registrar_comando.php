@@ -34,6 +34,7 @@ set_error_handler(function (int $severity, string $message, string $file = '', i
 
 try {
     require __DIR__ . '/config.php';
+    require __DIR__ . '/migracoes.php';
 } catch (Throwable $e) {
     if (ob_get_length()) {
         ob_clean();
@@ -50,7 +51,7 @@ try {
 
 header('Content-Type: application/json; charset=utf-8');
 
-require_api_key();
+exigir_dispositivo(); // token do hardware ou API_KEY (modo legado)
 $data = read_json_body();
 
 $tipo = trim((string) ($data['tipo'] ?? ''));
@@ -85,6 +86,32 @@ try {
         substr($valor, 0, 80),
         substr($origem, 0, 40),
     ]);
+
+    // ESP32 informou outra duração do modo manual (ex.: memória do relógio zerada):
+    // reenvia a do painel, se ainda não houver um envio pendente.
+    if ($tipo === 'luz_duracao') {
+        try {
+            $desejado = ler_configuracoes()['luz_manual_min'];
+            $pendente = (int) db()->query("SELECT COUNT(*) FROM comandos_pendentes WHERE tipo = 'luz_duracao' AND status = 'pendente'")->fetchColumn();
+            if ($valor !== $desejado && $pendente === 0 && in_array($desejado, LUZ_MANUAL_OPCOES, true)) {
+                enfileirar_duracao_luz($desejado, 'sincronizacao');
+            }
+        } catch (Throwable $e) {
+            error_log('luz_duracao: ' . $e->getMessage());
+        }
+    }
+
+    // Troca de fase feita no próprio ESP32 (menu OLED): reinicia a contagem de dias.
+    if ($tipo === 'modo_cultivo' && in_array($valor, FASES, true)) {
+        try {
+            garantir_schema_v2();
+            if (ler_chave('fase_atual') !== $valor) {
+                registrar_inicio_fase($valor);
+            }
+        } catch (Throwable $e) {
+            error_log('registrar_inicio_fase: ' . $e->getMessage());
+        }
+    }
 
     if (ob_get_length()) {
         ob_clean();
