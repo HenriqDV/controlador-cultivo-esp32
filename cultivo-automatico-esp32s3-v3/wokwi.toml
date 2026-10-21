@@ -1,0 +1,20 @@
+# =============================================================================
+# Configuração do Wokwi para VS Code
+# =============================================================================
+# Aponta pro firmware que o PlatformIO gera (ver platformio.ini — o nome do
+# ambiente "esp32-s3-devkitc-1" precisa bater com a pasta dentro de .pio/build).
+#
+# O bloco [[net.forward]] expõe o servidor web do ESP32 (porta 80, dentro da
+# simulação) como http://localhost:8100 no SEU navegador. Depois de iniciar a
+# simulação (F1 -> "Wokwi: Start Simulator"), abra esse endereço.
+# =============================================================================
+
+[wokwi]
+version = 1
+elf = ".pio/build/esp32-s3-devkitc-1/firmware.elf"
+firmware = ".pio/build/esp32-s3-devkitc-1/firmware.bin"
+gdbServerPort = 3333
+
+[[net.forward]]
+from = "localhost:8100"
+to = "target:80"
