@@ -63,7 +63,20 @@ $alvo = trim((string) ($data['alvo'] ?? ''));
 $valor = trim((string) ($data['valor'] ?? ''));
 
 // Whitelist: só comandos que o firmware entende (aplicarComandoRemotoWeb()).
-$relesValidos = ['Desumidificador', 'Ventilador', 'Entrada de Ar 1', 'Entrada de Ar 2', 'Saida de Ar'];
+$relesValidos = ['Umidificador', 'Ventilador', 'Irrigacao', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
+
+// Faixas aceitas pelo firmware (definirAutomacaoRemota()).
+function automacao_valida(string $alvo, string $valor): bool
+{
+    $limites = ['aquecedor' => [5.0, 40.0], 'umidade' => [20.0, 95.0]];
+    if (!isset($limites[$alvo]) || !preg_match('/^([01]);(\d{1,2}(?:\.\d)?);(\d{1,2}(?:\.\d)?)$/', $valor, $m)) {
+        return false;
+    }
+    [$inf, $sup] = $limites[$alvo];
+    $min = (float) $m[2];
+    $max = (float) $m[3];
+    return $min >= $inf && $max <= $sup && ($max - $min) >= 1.0;
+}
 
 $valido = false;
 if ($tipo === 'rele' && in_array($alvo, $relesValidos, true) && in_array($valor, ['ligado', 'desligado'], true)) {
@@ -73,6 +86,9 @@ if ($tipo === 'rele' && in_array($alvo, $relesValidos, true) && in_array($valor,
 } elseif ($tipo === 'luz_manual' && $alvo === 'luz_manual' && in_array($valor, ['auto', 'ligada', 'desligada'], true)) {
     $valido = true;
 } elseif ($tipo === 'acesso' && $alvo === 'acesso' && $valor === 'liberar') {
+    $valido = true;
+} elseif ($tipo === 'automacao' && automacao_valida($alvo, $valor)) {
+    // "ativa;min;max", ex.: "1;20.0;24.0" (aquecedor em °C, umidade em %).
     $valido = true;
 } elseif ($tipo === 'fotoperiodo' && in_array($alvo, ['vegetativo', 'floracao'], true) && horario_fotoperiodo_valido($valor)) {
     // Início da luz "HH:MM"; a duração é fixa no firmware.
@@ -89,6 +105,10 @@ if (!$valido) {
 }
 
 try {
+    // Automação: só o último ajuste ainda não entregue vale.
+    if ($tipo === 'automacao') {
+        db()->prepare("DELETE FROM comandos_pendentes WHERE tipo = 'automacao' AND alvo = ? AND status = 'pendente'")->execute([$alvo]);
+    }
     $stmt = db()->prepare(
         'INSERT INTO comandos_pendentes (tipo, alvo, valor, usuario) VALUES (?, ?, ?, ?)'
     );

@@ -8,7 +8,7 @@ do projeto está no `README.md` da raiz.
 
 | Arquivo | Acesso | Função |
 |---|---|---|
-| `index.php` | Sessão | Dashboard (Início, Relógio de eventos, Automação, Comandos, Histórico, Dispositivo, Configurações) |
+| `index.php` | Sessão | Dashboard (Início, Relógio de eventos, Fotoperíodo, Comandos, Histórico, Dispositivo, Configurações) |
 | `login.php` / `logout.php` | — | Login, cadastro (com código de convite), esqueci a senha, sair |
 | `auth.php` | — | Contas, "Lembrar de mim", código de convite e CSRF |
 | `usuarios.php` | Sessão | Alterar senha; admin: contas, redefinir senha, convite |
@@ -25,7 +25,7 @@ do projeto está no `README.md` da raiz.
 | `status.php` | Sessão | Online/offline e dados do ESP32 (firmware, sinal, tempo ligado) |
 | `dispositivo.php` | Sessão (alterações: admin) | Token do hardware, token de vinculação e atividade recente |
 | `vincular.php` | Pública (código de uso único) | ESP32 troca o token de vinculação pelo token definitivo |
-| `automacao.php` | Sessão | Troca de fase: ativar agora, programar para uma data, cancelar |
+| `fotoperiodo.php` | Sessão | Troca de fase: ativar agora, programar para uma data, cancelar |
 | `cron.php` | Só linha de comando | Trocas de fase programadas e avisos do Telegram (cron a cada minuto) |
 | `notificacoes.php` | Sessão | Vínculo do Telegram, mensagem de teste e interruptores dos avisos |
 | `telegram.php` | — | Envio pelo bot, limite de 1 aviso a cada 30 min e "normalizado" |
@@ -44,7 +44,7 @@ do projeto está no `README.md` da raiz.
    gere o código de convite em Configurações → Usuários.
 5. No hPanel → **Avançado → Cron Jobs**, crie um cron **a cada minuto** com o comando
    `php /home/SEU_USUARIO/domains/SEU-DOMINIO/public_html/cron.php`.
-   Ele executa as trocas de fase programadas na Automação. Sem o cron, só a troca
+   Ele executa as trocas de fase programadas no Fotoperíodo. Sem o cron, só a troca
    programada deixa de funcionar ("Ativar agora" funciona normalmente).
 6. (Opcional) Telegram: crie um bot no **@BotFather**, coloque o token no `config.php`
    (`const TELEGRAM_BOT_TOKEN = '...';`) e, no painel, vá em Configurações →

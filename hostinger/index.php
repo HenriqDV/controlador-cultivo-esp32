@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-// Dashboard (login): Início, Relógio de eventos, Automação, Comandos, Histórico,
+// Dashboard (login): Início, Relógio de eventos, Fotoperíodo, Comandos, Histórico,
 // Dispositivo e Configurações. Comandos vão para a fila comandos_pendentes (polling do ESP32).
 require __DIR__ . '/config.php';
 require __DIR__ . '/auth.php';
@@ -111,9 +111,15 @@ $ehAdmin = auth_eh_admin();
   .sidebar-overlay {
     display: none;
     position: fixed; inset: 0;
-    background: rgba(0, 0, 0, .5);
+    background: rgba(8, 10, 10, .45);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     z-index: 150;
   }
+  .sidebar-overlay.visivel { animation: overlayEntrar .2s ease; }
+  @keyframes overlayEntrar { from { opacity: 0; } to { opacity: 1; } }
+  /* Com o menu aberto, a página de fundo não rola. */
+  body.menu-aberto { overflow: hidden; }
 
   /* ---------------- Topo mobile ---------------- */
   .topo-mobile {
@@ -255,11 +261,6 @@ $ehAdmin = auth_eh_admin();
   .icone-ventilador.girando { animation: girarVentilador 1.6s linear infinite; }
   @keyframes girarVentilador { to { transform: rotate(360deg); } }
 
-  .modo-pills { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
-  .modo-pill { flex: 1; min-width: 140px; background: var(--card2); border: 1px solid var(--borda); border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--muted); }
-  .modo-pill small { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; color: var(--muted); }
-  .modo-pill.ativo { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
-  .modo-pill.ativo small { color: var(--accent); }
 
   /* ---------------- Histórico ---------------- */
   .periodo-botoes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
@@ -274,9 +275,8 @@ $ehAdmin = auth_eh_admin();
   .grafico-skeleton { position: absolute; inset: 0; border-radius: 10px; }
 
   .roda-card { background: var(--card); border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); padding: 16px; }
-  .roda-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0 0 14px; }
-  .roda-svg-wrap { width: 100%; display: flex; justify-content: center; margin-bottom: 14px; touch-action: manipulation; }
-  .roda-svg-wrap svg { width: 100%; max-width: 380px; height: auto; }
+  .roda-svg-wrap { width: 100%; display: flex; justify-content: center; margin: 2px 0 4px; touch-action: manipulation; }
+  .roda-svg-wrap svg { width: 100%; max-width: 400px; height: auto; }
   .roda-hora-label { font-size: 11px; fill: var(--muted); text-anchor: middle; }
   .roda-evento-dot { cursor: pointer; }
   .roda-evento-dot circle:last-of-type { transition: stroke-width .15s ease; }
@@ -284,47 +284,65 @@ $ehAdmin = auth_eh_admin();
   .roda-evento-dot:focus { outline: none; }
   @keyframes rodaPulso { 0% { r: 5; stroke-opacity: .9; } 100% { r: 15; stroke-opacity: 0; } }
   .roda-agora-pulso { animation: rodaPulso 2s ease-out infinite; }
+  /* Relógio de eventos: resumo, filtros, anéis, detalhe e lista */
+  .rr-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .rr-chip { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--borda); border-radius: 14px; text-align: left; font-family: inherit; color: var(--texto); cursor: pointer; transition: border-color .2s ease, background-color .2s ease; }
+  .rr-chip.ativo { border-color: var(--c); background: linear-gradient(160deg, var(--cs), transparent 70%), var(--card); }
+  .rr-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rr-chip-icone { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .rr-chip-icone svg { width: 16px; height: 16px; }
+  .rr-chip strong { display: block; font-size: 13px; font-weight: 700; }
+  .rr-chip small { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .rr-filtros { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+  .rr-filtro { display: flex; align-items: center; gap: 6px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--texto); background: var(--card2); border: 1px solid var(--borda); border-radius: 999px; padding: 6px 10px; cursor: pointer; transition: opacity .2s ease; }
+  .rr-filtro.off { opacity: .45; }
+  .rr-filtro i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .rr-filtro i.vazado { background: transparent; border: 2px solid var(--amber); margin-left: -3px; }
+  .rr-aneis { display: flex; justify-content: center; gap: 6px 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin: -6px 0 12px; }
+  .rr-aneis span { display: flex; align-items: center; gap: 6px; }
+  .rr-aneis b { width: 16px; height: 5px; border-radius: 3px; display: inline-block; }
+  .rr-arco { cursor: pointer; }
+  .rr-arco:focus { outline: none; }
+  .rr-detalhe { background: var(--card2); border: 1px solid var(--c, var(--borda)); border-radius: 14px; padding: 12px 14px; }
+  .rr-detalhe-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .rr-detalhe-hora { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .rr-detalhe h3 { margin: 4px 0 8px; font-size: 14px; font-weight: 700; line-height: 1.35; }
+  .rr-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 6px; padding: 3px 7px; background: var(--borda); color: var(--muted); vertical-align: 1px; }
+  .rr-tag.auto { background: rgba(92, 200, 180, .14); color: #5cc8b4; }
+  .rr-linhas { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; }
+  .rr-linhas span { color: var(--muted); }
+  .rr-fechar { font-family: inherit; font-size: 11px; color: var(--muted); background: none; border: none; display: flex; align-items: center; gap: 3px; cursor: pointer; padding: 2px 4px; }
+  .rr-fechar svg { width: 12px; height: 12px; }
+  .rr-mini { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .rr-mini button { display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 12px; color: var(--texto); background: var(--bg); border: 1px solid var(--borda); border-radius: 8px; padding: 7px 9px; text-align: left; cursor: pointer; }
+  .rr-mini i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .rr-mini b { font-variant-numeric: tabular-nums; }
+  .rr-lista-cab { display: flex; justify-content: space-between; align-items: baseline; margin: 18px 2px 8px; }
+  .rr-lista-cab h4 { margin: 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+  .rr-lista-cab small { font-size: 12px; color: var(--muted); }
+  .rr-lista { display: flex; flex-direction: column; gap: 6px; }
+  .rr-lista-ontem { margin-top: 6px; opacity: .85; }
+  .rr-ev { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; background: var(--card2); border: 1px solid transparent; border-radius: 12px; font-family: inherit; color: var(--texto); text-align: left; cursor: pointer; }
+  .rr-ev.sel { border-color: var(--c); }
+  .rr-ev:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rr-ev-icone { width: 32px; height: 32px; border-radius: 10px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .rr-ev-icone svg { width: 16px; height: 16px; }
+  .rr-ev-texto { flex: 1; min-width: 0; }
+  .rr-ev-texto strong { display: block; font-size: 13px; font-weight: 700; line-height: 1.3; }
+  .rr-ev-texto > span { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 1px; }
+  .rr-auto { color: #5cc8b4; font-weight: 700; }
+  .rr-ev-hora { text-align: right; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; flex: none; }
+  .rr-ev-hora small { display: block; font-size: 11px; font-weight: 600; color: var(--muted); }
+  .rr-ev-hora small.vivo { color: #5cc8b4; }
+  .rr-mais { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 8px; padding: 10px; border-radius: 12px; border: 1px dashed var(--borda); background: none; font-family: inherit; font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+  .rr-mais svg { width: 14px; height: 14px; }
+  .rr-ontem { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 11px 12px; margin-top: 6px; border-radius: 12px; border: none; background: var(--card2); font-family: inherit; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; text-align: left; }
+  .rr-ontem svg { width: 16px; height: 16px; flex: none; }
+  .rr-vazio { color: var(--muted); font-size: 12px; padding: 14px 4px; }
 
-  .roda-legenda { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; margin-bottom: 14px; }
-  .roda-legenda-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); background: none; border: none; font-family: inherit; padding: 5px 8px; border-radius: 999px; cursor: pointer; transition: opacity .2s ease, background-color .2s ease; }
-  .roda-legenda-item:active { background: var(--card2); }
-  .roda-legenda-item.ativo { color: var(--texto); }
-  .roda-legenda-item:not(.ativo) { opacity: .4; }
-  .roda-legenda-item i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 
-  .roda-detalhe { background: var(--card2); border: 1px solid var(--borda); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; min-height: 20px; }
-  .roda-detalhe-vazio { color: var(--muted); font-size: 12px; }
-  .roda-detalhe-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .roda-detalhe-hora { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .roda-detalhe-fechar { background: none; border: none; color: var(--muted); font-size: 11px; font-family: inherit; cursor: pointer; padding: 2px 4px; white-space: nowrap; }
-  .roda-detalhe-fechar:active { color: var(--texto); }
-  .roda-detalhe-desc { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-  .roda-detalhe-meta { font-size: 12px; color: var(--muted); }
-  .roda-detalhe-lista { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-  .roda-detalhe-linha { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-  .roda-detalhe-linha-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .roda-detalhe-linha-hora { font-weight: 700; min-width: 38px; }
 
-  .roda-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 18px; }
-  .roda-status-item { background: var(--card2); border-radius: 10px; padding: 10px 12px; font-size: 12px; }
-  .roda-status-item .roda-status-nome { color: var(--muted); margin-bottom: 3px; }
-  .roda-status-item .roda-status-valor { font-size: 14px; font-weight: 700; }
-  .roda-status-item .roda-status-valor.on { color: var(--amber); }
-  .roda-status-item .roda-status-valor.off { color: var(--azul); }
-  .roda-status-item .roda-status-valor.acesso { color: var(--accent); }
 
-  .roda-lista-cabecalho { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-  .roda-lista-cabecalho h3 { margin: 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; font-weight: 700; }
-  .roda-lista-contagem { font-size: 12px; color: var(--muted); }
-  .roda-lista { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
-  .roda-lista-item { display: flex; align-items: center; gap: 8px; width: 100%; background: var(--card2); border: 1px solid transparent; border-radius: 10px; padding: 8px 10px; font-size: 12px; color: var(--texto); font-family: inherit; text-align: left; cursor: pointer; }
-  .roda-lista-item:active { background: #262b29; }
-  .roda-lista-item.selecionado { border-color: #eef1ee; }
-  .roda-lista-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-  .roda-lista-hora { font-weight: 700; min-width: 36px; flex: none; }
-  .roda-lista-desc { flex: 1; }
-  .roda-lista-origem { color: var(--muted); font-size: 11px; flex: none; }
-  .roda-lista-vazio { color: var(--muted); font-size: 12px; padding: 8px 0; text-align: center; }
 
   /* ---------------- Toast + rodapé de status ---------------- */
   .cmd-btn-spinner { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: cmdGirar .6s linear infinite; vertical-align: -2px; margin-right: 5px; }
@@ -397,7 +415,55 @@ $ehAdmin = auth_eh_admin();
   .rele-card.pendente .switch::after { animation: switchPulso 1s ease-in-out infinite; }
   @keyframes switchPulso { 50% { opacity: .45; } }
 
-  /* ---------------- Automação ---------------- */
+  /* Cards de controle (Modo, Luz, Acesso) no mesmo visual dos relés */
+  .rele-card.largo { grid-column: 1 / -1; min-height: 0; }
+  .rele-card.fase .rele-icone { background: var(--accent-soft); color: var(--accent); }
+  .rele-card.fase .rele-estado strong { color: var(--accent); }
+  .rele-card.liberado { border-color: var(--accent-line); background: linear-gradient(160deg, rgba(76, 175, 80, .09), transparent 60%), var(--bg); }
+  .rele-card.liberado .rele-icone { background: var(--accent-soft); color: var(--accent); }
+  .rele-card.liberado .rele-estado strong { color: var(--accent); }
+  .rele-card.confirmando { border-color: rgba(224, 138, 133, .5); }
+  .rele-card.confirmando .rele-estado strong { color: var(--red); }
+  .auto-desc { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: -8px; }
+  .auto-faixa { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .auto-passo { background: var(--card2); border: 1px solid var(--borda); border-radius: 12px; padding: 9px 10px; display: flex; flex-direction: column; gap: 7px; transition: border-color .2s ease; }
+  .auto-passo.alterado { border-color: var(--accent-line); }
+  .auto-rotulo { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .auto-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .auto-ctrl strong { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .auto-ctrl button {
+    width: 30px; height: 30px; flex: none; border-radius: 9px; border: 1px solid var(--borda); background: var(--bg);
+    color: var(--texto); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .auto-ctrl button svg { width: 15px; height: 15px; }
+  .auto-ctrl button:disabled { opacity: .35; cursor: default; }
+  .auto-ctrl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .auto-card .cmd-confirmacao { margin-top: -4px; }
+  .rele-card .rele-icone.aceso { background: var(--amber-soft); color: var(--amber); }
+  .rele-chip {
+    font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); background: var(--card2); border: 1px solid transparent; border-radius: 6px; padding: 3px 7px; cursor: pointer;
+    transition: background-color .2s ease, color .2s ease, border-color .2s ease;
+  }
+  .rele-chip:hover { border-color: var(--borda); color: var(--texto); }
+  .rele-chip.ativo { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); cursor: default; }
+  .rele-chip:disabled:not(.ativo) { cursor: wait; opacity: .6; }
+  .rele-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rele-acao {
+    width: 52px; height: 30px; border-radius: 999px; flex: none; padding: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; text-decoration: none;
+    background: #2f3632; border: 1px solid var(--borda); color: var(--texto);
+    transition: background-color .2s ease, border-color .2s ease, color .2s ease, transform .1s ease;
+  }
+  .rele-acao svg { width: 16px; height: 16px; }
+  .rele-acao:active { transform: scale(.95); }
+  .rele-acao:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .rele-acao:disabled { cursor: wait; opacity: .7; }
+  .rele-acao.verde { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+  .rele-acao.perigo { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+  .rele-acao .cmd-btn-spinner { margin: 0; }
+
+  /* ---------------- Fotoperíodo ---------------- */
   .auto-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 18px; }
   .auto-status .card-valor { font-size: 18px; }
   .auto-status { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -597,7 +663,7 @@ $ehAdmin = auth_eh_admin();
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .skeleton, .roda-agora-pulso, .icone-ventilador.girando, .cmd-btn-spinner, .rele-card.pendente .switch::after { animation: none !important; }
+    .skeleton, .sidebar-overlay.visivel, .roda-agora-pulso, .icone-ventilador.girando, .cmd-btn-spinner, .rele-card.pendente .switch::after, .rele-card.pendente .rele-acao { animation: none !important; }
   }
 </style>
 </head>
@@ -693,39 +759,12 @@ $ehAdmin = auth_eh_admin();
       <h1 class="titulo-aba">Comandos</h1>
       <p class="subtitulo-aba" style="margin-bottom:10px;">Os comandos v&atilde;o para uma fila; o ESP32 consulta a cada poucos segundos e aplica assim que chegar nele.</p>
 
-      <div class="modo-pills">
-        <div class="modo-pill" id="pillVegetativo">Vegeta&ccedil;&atilde;o<small id="pillVegetativoSub">18h luz &middot; 16:00&ndash;10:00</small></div>
-        <div class="modo-pill" id="pillFloracao">Flora&ccedil;&atilde;o<small id="pillFloracaoSub">12h luz &middot; 19:00&ndash;07:00</small></div>
-      </div>
-
       <div class="cmd-grupo">
         <div class="cmd-grupo-cabecalho">
-          <div class="cmd-grupo-titulo"><svg data-lucide="sprout"></svg>Modo de cultivo</div>
-          <span class="pill pill-neutro" id="cmdModoCultivoPill">--</span>
+          <div class="cmd-grupo-titulo"><svg data-lucide="sprout"></svg>Cultivo e automa&ccedil;&otilde;es</div>
+          <span style="font-size:12px;color:var(--muted);">fase e controles autom&aacute;ticos</span>
         </div>
-        <a class="cmd-link" href="#automacao" data-ir-aba="automacao"><span>Trocar de fase, agora ou numa data programada, fica na Automa&ccedil;&atilde;o</span><svg data-lucide="arrow-right"></svg></a>
-      </div>
-
-      <div class="cmd-grupo">
-        <div class="cmd-grupo-cabecalho">
-          <div class="cmd-grupo-titulo"><svg data-lucide="lightbulb"></svg>Luz</div>
-          <span class="pill pill-neutro" id="cmdLuzPill">--</span>
-        </div>
-        <div class="cmd-seg" id="cmdLuz">
-          <button class="cmd-btn" data-tipo="luz_manual" data-alvo="luz_manual" data-valor="auto" aria-pressed="false">Autom&aacute;tico</button>
-          <button class="cmd-btn" data-tipo="luz_manual" data-alvo="luz_manual" data-valor="ligada" aria-pressed="false">Ligar</button>
-          <button class="cmd-btn" data-tipo="luz_manual" data-alvo="luz_manual" data-valor="desligada" aria-pressed="false">Desligar</button>
-        </div>
-      </div>
-
-      <div class="cmd-grupo">
-        <div class="cmd-grupo-cabecalho">
-          <div class="cmd-grupo-titulo"><svg data-lucide="door-open"></svg>Acesso (porta)</div>
-          <span class="pill pill-neutro" id="cmdAcessoPill">--</span>
-        </div>
-        <div id="cmdAcessoArea">
-          <button class="cmd-btn cmd-btn-acesso" id="cmdBtnAcesso" data-tipo="acesso" data-alvo="acesso" data-valor="liberar"><svg data-lucide="lock-open" style="width:16px;height:16px;"></svg>Liberar acesso</button>
-        </div>
+        <div class="rele-grid" id="cmdControles"></div>
       </div>
 
       <div class="cmd-grupo">
@@ -794,41 +833,28 @@ $ehAdmin = auth_eh_admin();
     <!-- ===================== ABA: RELÓGIO DE EVENTOS ===================== -->
     <div class="aba" id="aba-relogio">
       <h1 class="titulo-aba">Rel&oacute;gio de eventos</h1>
-      <p class="subtitulo-aba">O que aconteceu nas &uacute;ltimas 24 horas, posicionado pela hora do dispositivo.</p>
+      <p class="subtitulo-aba" style="margin-bottom:16px;">&Uacute;ltimas 24 horas. Toque num ponto ou num trecho colorido.</p>
+      <div class="rr-resumo" id="rrResumo"></div>
       <section>
         <div class="roda-card">
-          <p class="roda-desc">Eventos posicionados pela hora do dispositivo. O arco claro mostra a janela de luz programada para o modo ativo. Toque num ponto do rel&oacute;gio (ou num item da lista, mais abaixo) para ver os detalhes; toque na legenda pra mostrar/esconder cada tipo de evento.</p>
-
-          <div class="roda-svg-wrap"><svg id="rodaEventos" viewBox="-20 -20 400 400"></svg></div>
-
-          <div class="roda-legenda" id="rodaLegenda">
-            <button type="button" class="roda-legenda-item ativo" data-filtro="acesso"><i style="background:var(--accent);"></i>Acesso liberado</button>
-            <button type="button" class="roda-legenda-item ativo" data-filtro="ligado"><i style="background:var(--amber);"></i>Rel&eacute; ligado</button>
-            <button type="button" class="roda-legenda-item ativo" data-filtro="desligado"><i style="background:var(--azul);"></i>Rel&eacute; desligado</button>
-            <button type="button" class="roda-legenda-item ativo" data-filtro="alerta"><i style="background:var(--red);"></i>Alertas e avisos</button>
-            <button type="button" class="roda-legenda-item ativo" data-filtro="fase"><i style="background:#b48ee0;"></i>Troca de fase</button>
-            <button type="button" class="roda-legenda-item ativo" data-filtro="janela"><i style="background:#3c4a34;"></i>Janela de luz do modo</button>
+          <div class="rr-filtros" id="rrFiltros">
+            <button type="button" class="rr-filtro" data-rr-filtro="equipamentos" aria-pressed="true"><i style="background:var(--amber);"></i><i class="vazado"></i>Equipamentos</button>
+            <button type="button" class="rr-filtro" data-rr-filtro="automacoes" aria-pressed="true"><i style="background:#5cc8b4;"></i>Automa&ccedil;&otilde;es</button>
+            <button type="button" class="rr-filtro" data-rr-filtro="porta" aria-pressed="true"><i style="background:var(--accent);"></i>Porta</button>
+            <button type="button" class="rr-filtro" data-rr-filtro="avisos" aria-pressed="true"><i style="background:var(--red);"></i>Avisos</button>
+            <button type="button" class="rr-filtro" data-rr-filtro="fase" aria-pressed="true"><i style="background:#b48ee0;"></i>Fase</button>
           </div>
-
-          <div class="roda-detalhe" id="rodaDetalhe">
-            <div class="roda-detalhe-vazio" id="rodaDetalheVazio">Toque em um ponto do rel&oacute;gio ou na lista abaixo para ver os detalhes do evento.</div>
-            <div class="roda-detalhe-conteudo" id="rodaDetalheConteudo" style="display:none;"></div>
-          </div>
-
-          <div class="roda-status" id="rodaStatus"></div>
-
-          <div class="roda-lista-cabecalho">
-            <h3>Eventos (&uacute;ltimas 24h)</h3>
-            <span class="roda-lista-contagem" id="rodaListaContagem"></span>
-          </div>
-          <div class="roda-lista" id="rodaLista"></div>
+          <div class="roda-svg-wrap"><svg id="rodaEventos" viewBox="0 0 400 400" role="img" aria-label="Rel&oacute;gio de eventos das &uacute;ltimas 24 horas"></svg></div>
+          <div class="rr-aneis" id="rrAneis"></div>
+          <div class="rr-detalhe" id="rrDetalhe" hidden></div>
         </div>
       </section>
+      <div id="rrLista"></div>
     </div>
 
-    <!-- ===================== ABA: AUTOMAÇÃO ===================== -->
-    <div class="aba" id="aba-automacao">
-      <h1 class="titulo-aba">Automa&ccedil;&atilde;o</h1>
+    <!-- ===================== ABA: FOTOPERÍODO ===================== -->
+    <div class="aba" id="aba-fotoperiodo">
+      <h1 class="titulo-aba">Fotoper&iacute;odo</h1>
       <p class="subtitulo-aba">Central dos timers de luz. Escolha a hora em que a luz acende em cada fase &mdash; a dura&ccedil;&atilde;o do ciclo &eacute; fixa.</p>
 
       <div class="auto-status">
@@ -942,7 +968,7 @@ $ehAdmin = auth_eh_admin();
               <select name="pagina_inicial">
                 <option value="inicio">In&iacute;cio</option>
                 <option value="relogio">Rel&oacute;gio de eventos</option>
-                <option value="automacao">Automa&ccedil;&atilde;o</option>
+                <option value="fotoperiodo">Fotoper&iacute;odo</option>
                 <option value="comandos">Comandos</option>
                 <option value="historico">Hist&oacute;rico</option>
               </select>
@@ -1115,15 +1141,16 @@ $ehAdmin = auth_eh_admin();
 const sidebar = document.getElementById('sidebar');
 const overlay = document.getElementById('sidebarOverlay');
 const btnHamburger = document.getElementById('btnHamburger');
-const ABAS_VALIDAS = ['inicio', 'relogio', 'automacao', 'comandos', 'historico', 'dispositivo', 'configuracoes'];
+const ABAS_VALIDAS = ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'historico', 'dispositivo', 'configuracoes'];
 
-function abrirSidebar() { sidebar.classList.add('aberta'); overlay.classList.add('visivel'); }
-function fecharSidebar() { sidebar.classList.remove('aberta'); overlay.classList.remove('visivel'); }
+function abrirSidebar() { sidebar.classList.add('aberta'); overlay.classList.add('visivel'); document.body.classList.add('menu-aberto'); }
+function fecharSidebar() { sidebar.classList.remove('aberta'); overlay.classList.remove('visivel'); document.body.classList.remove('menu-aberto'); }
 btnHamburger.addEventListener('click', abrirSidebar);
 overlay.addEventListener('click', fecharSidebar);
 
 let abaAtual = 'inicio';
 function mudarAba(aba) {
+  if (aba === 'automacao') aba = 'fotoperiodo'; // nome antigo da página (links e preferências salvas)
   if (!ABAS_VALIDAS.includes(aba)) aba = 'inicio';
   abaAtual = aba;
   document.querySelectorAll('.aba').forEach(el => el.classList.toggle('ativa', el.id === 'aba-' + aba));
@@ -1133,7 +1160,7 @@ function mudarAba(aba) {
   // Chart.js precisa recalcular o tamanho ao reaparecer.
   if (aba === 'historico') { setTimeout(() => { [graficoTemperatura, graficoUmidade, graficoSolo, graficoVpd].forEach(g => { if (g) g.resize(); }); }, 0); }
   if (aba === 'relogio') renderizarRoda();
-  if (aba === 'automacao') renderizarAutomacao();
+  if (aba === 'fotoperiodo') renderizarFotoperiodo();
   if (aba === 'dispositivo') carregarDispositivo().catch(e => console.warn('dispositivo:', e.message));
   window.scrollTo(0, 0);
 }
@@ -1285,11 +1312,13 @@ let graficoUmidade = null;
 let graficoSolo = null;
 let graficoVpd = null;
 let ultimaLeitura = null;
+let leituras24h = []; // leituras das últimas 24h (detalhes das automações no relógio)
 
 async function carregarResumo() {
   // Sempre 24h (dados crus) para pegar a leitura mais recente.
   const d = await buscarJson('dados.php?periodo=24h');
   const linhas = d.dados || [];
+  leituras24h = linhas;
   if (linhas.length > 0) {
     const ultima = linhas[linhas.length - 1];
     tirarEsqueleto('statTempInterna'); tirarEsqueleto('statUmidInterna');
@@ -1483,7 +1512,7 @@ function atualizarCardLuz() {
     }
   }
   atualizarRodape();
-  if (abaAtual === 'automacao') atualizarStatusAutomacao();
+  if (abaAtual === 'fotoperiodo') atualizarStatusFotoperiodo();
 }
 function atualizarPillsModo() {
   ['vegetativo', 'floracao'].forEach(modo => {
@@ -1496,7 +1525,8 @@ atualizarCardLuz();
 setInterval(atualizarCardLuz, 1000);
 
 /* ==================== Roda de eventos ==================== */
-const RELES_NA_RODA = ['Ventilador', 'Saida de Ar'];
+const RELES_NA_RODA = ['Ventilador', 'Saida de Ar', 'Aquecedor', 'Umidificador'];
+const RELES_NO_STATUS_RODA = ['Ventilador', 'Saida de Ar'];
 
 function horaFracionada(dataHoraStr) {
   if (!dataHoraStr) return 0;
@@ -1526,6 +1556,7 @@ function formatarDuracao(ms) {
   return h + 'h' + (m > 0 ? String(m).padStart(2, '0') + 'min' : '');
 }
 function corDoEvento(c) {
+  if (ehEventoAutomacao(c)) return (c.tipo === 'rele' && c.valor !== 'ligado') ? '#3f8f86' : '#5cc8b4';
   if (c.tipo === 'alerta') return c.valor === 'normalizado' ? '#9CC65A' : '#e08a85';
   if (c.tipo === 'acesso') return '#4CAF50';
   if (c.tipo === 'fase') return '#b48ee0';
@@ -1533,6 +1564,7 @@ function corDoEvento(c) {
   return c.valor === 'ligado' ? '#e8c977' : '#7fa9c2';
 }
 function descricaoEvento(c) {
+  if (ehEventoAutomacao(c)) return descricaoAutomacao(c);
   if (c.tipo === 'alerta' && c.alvo === 'Solo') return c.valor === 'normalizado' ? 'Sensor de solo voltou a ler' : 'Sensor de solo sem leitura';
   if (c.tipo === 'alerta') return 'Alerta: ' + c.alvo + ' (' + c.valor + ')';
   if (c.tipo === 'acesso') return 'Acesso liberado';
@@ -1549,216 +1581,471 @@ function descricaoEvento(c) {
     if (String(c.valor).indexOf('programada para') === 0) return nome + ' ' + c.valor;
     return nome + ' ativada' + (c.valor === 'programada_executada' ? ' (programada)' : '');
   }
-  return c.alvo + ' ' + (c.valor === 'ligado' ? 'ligado' : 'desligado');
+  return (RELE_ROTULO[c.alvo] || c.alvo) + ' ' + (c.valor === 'ligado' ? 'ligado' : 'desligado');
 }
 function chaveEventos(eventos) { return eventos.map(ev => (ev.dispositivo_timestamp || ev.criado_em) + '|' + ev.tipo + '|' + ev.alvo + '|' + ev.valor).join(','); }
 
-const filtrosAtivos = { acesso: true, ligado: true, desligado: true, alerta: true, fase: true, janela: true };
+/* ---------- Relógio de eventos: períodos ligados em anéis, eventos pontuais e lista agrupada ---------- */
+// Equipamentos com anel próprio: cada trecho pintado é um período ligado.
+const RODA_ANEIS = [
+  { rele: 'Aquecedor', cor: '#e8a05c', icone: 'heater', raio: 121 },
+  { rele: 'Umidificador', cor: '#6fb3e0', icone: 'droplets', raio: 106 },
+];
+const RODA_COR = { porta: '#4CAF50', aviso: '#e08a85', avisoOk: '#9CC65A', fase: '#b48ee0', auto: '#5cc8b4', ligado: '#e8c977', telegram: '#6fb3e0' };
+const RODA_RAIO = 150;
+const RODA_LIMITE_LISTA = 8;
+const filtrosRoda = { equipamentos: true, automacoes: true, porta: true, avisos: true, fase: true };
+let focoRoda = null;          // 'Aquecedor' | 'Umidificador' | 'porta' | 'avisos' | null
+let rodaSelecao = [];         // ids dos itens selecionados
+let rodaItens = [];
+let rodaListaExpandida = false;
+let rodaOntemAberto = false;
 let ultimoEventosHoje = [];
 let ultimoModoAtual = 'vegetativo';
-let rodaSelecionadoChave = null;
 
-function agruparEventosProximos(eventos, limiarMinutos) {
-  const ordenados = eventos.map(ev => ({ ev, horaFrac: horaFracionada(timestampEvento(ev)) })).sort((a, b) => a.horaFrac - b.horaFrac);
-  const clusters = [];
-  ordenados.forEach(item => {
-    const ultimo = clusters[clusters.length - 1];
-    if (ultimo && (item.horaFrac - ultimo.horaFracMax) * 60 <= limiarMinutos) {
-      ultimo.membros.push(item.ev);
-      ultimo.horaFracMax = item.horaFrac;
-      ultimo.horaFracMedia = ultimo.membros.reduce((soma, m) => soma + horaFracionada(timestampEvento(m)), 0) / ultimo.membros.length;
-    } else {
-      clusters.push({ membros: [item.ev], horaFracMax: item.horaFrac, horaFracMedia: item.horaFrac });
-    }
-  });
-  return clusters;
+function corSuave(hex, alfa) {
+  const h = String(hex).replace('#', '');
+  return 'rgba(' + parseInt(h.substr(0, 2), 16) + ',' + parseInt(h.substr(2, 2), 16) + ',' + parseInt(h.substr(4, 2), 16) + ',' + (alfa || 0.16) + ')';
 }
-function eventosFiltrados() {
-  return ultimoEventosHoje.filter(c => c.tipo === 'fase' ? filtrosAtivos.fase : (c.tipo === 'alerta' || c.tipo === 'notificacao') ? filtrosAtivos.alerta : c.tipo === 'acesso' ? filtrosAtivos.acesso : (c.valor === 'ligado' ? filtrosAtivos.ligado : filtrosAtivos.desligado));
+function hhmmDeMs(ms) { const d = new Date(ms); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function horaFracDeMs(ms) { const d = new Date(ms); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; }
+function inicioDoDia(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function quandoTexto(ms) {
+  const d = new Date(ms), hoje = inicioDoDia(Date.now());
+  const data = pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + '/' + d.getFullYear();
+  if (ms >= hoje) return 'hoje, ' + data;
+  if (ms >= hoje - 86400000) return 'ontem, ' + data;
+  return data;
+}
+// "5h12" / "42 min" (cabe numa linha nos chips do resumo)
+function duracaoCompacta(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h' + pad2(m % 60); }
+function duracaoCurta(ms) { const t = formatarDuracao(ms); return t === 'agora mesmo' ? 'menos de 1 min' : t; }
+function origemCurta(origem) {
+  return ({ automacao: 'Automático', automatico_luz: 'Automático', retomou_automatico: 'Automático', web: 'Painel', manual: 'Botão do OLED',
+    botao: 'Botão', pausa_painel: 'Painel', pausa_oled: 'Botão do OLED', sistema: 'Sistema', servidor: 'Servidor', telegram: 'Telegram', boot: 'Ao ligar' })[origem] || origem || '—';
+}
+function htmlOrigem(origem) {
+  const t = origemCurta(origem);
+  return t === 'Automático' ? '<b class="rr-auto">Automático</b>' : escapeHtml(t);
+}
+function fmtGrandeza(campo, v) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return campo === 'temp_interna' ? fmtTemp(v) : Math.round(v) + '%';
 }
 
-function mostrarDetalheEvento(eventos) {
-  rodaSelecionadoChave = chaveEventos(eventos);
-  const vazio = document.getElementById('rodaDetalheVazio');
-  const conteudo = document.getElementById('rodaDetalheConteudo');
-  vazio.style.display = 'none';
-  conteudo.style.display = '';
-  const fecharBtn = '<button type="button" class="roda-detalhe-fechar" onclick="fecharDetalheEvento()">fechar \u2715</button>';
-  if (eventos.length === 1) {
-    const ev = eventos[0];
-    const hhmm = timestampEvento(ev) ? String(timestampEvento(ev)).substring(11, 16) : '--:--';
-    const t = new Date(String(timestampEvento(ev) || '').replace(' ', 'T')).getTime();
-    const haQuanto = !isNaN(t) ? formatarDuracao(Date.now() - t) : '';
-    conteudo.innerHTML = '<div class="roda-detalhe-topo"><span class="roda-detalhe-hora">' + hhmm + '</span>' + fecharBtn + '</div>' +
-      '<div class="roda-detalhe-desc">' + escapeHtml(descricaoEvento(ev)) + '</div>' +
-      '<div class="roda-detalhe-meta">origem: ' + escapeHtml(ev.origem || '?') + (haQuanto ? ' &middot; h\u00e1 ' + escapeHtml(haQuanto) : '') + '</div>';
-  } else {
-    const linhas = eventos.slice().sort((a, b) => horaFracionada(timestampEvento(a)) - horaFracionada(timestampEvento(b))).map(ev => {
-      const hhmm = timestampEvento(ev) ? String(timestampEvento(ev)).substring(11, 16) : '--:--';
-      return '<div class="roda-detalhe-linha"><span class="roda-detalhe-linha-dot" style="background:' + corDoEvento(ev) + ';"></span>' +
-        '<span class="roda-detalhe-linha-hora">' + hhmm + '</span><span>' + escapeHtml(descricaoEvento(ev)) + '</span></div>';
-    }).join('');
-    conteudo.innerHTML = '<div class="roda-detalhe-topo"><span class="roda-detalhe-desc">' + eventos.length + ' eventos pr\u00f3ximos</span>' + fecharBtn + '</div>' +
-      '<div class="roda-detalhe-lista">' + linhas + '</div>';
+// ---- Avisos: textos com o valor lido e a faixa configurada
+const AVISO_CAMPO = { temperatura: ['temp_interna', 'Temperatura', 'temp_alerta_min', 'temp_alerta_max'], umidade: ['umid_interna', 'Umidade', 'umid_alerta_min', 'umid_alerta_max'] };
+function textoAviso(c, irmao) {
+  const ms = msEvento(c);
+  const tg = c.tipo === 'notificacao' ? c : irmao;
+  const envio = tg ? (tg.valor === 'falhou' ? 'falha ao enviar no Telegram' : (tg.valor === 'normalizado' ? 'aviso de normalização no Telegram' : 'aviso enviado no Telegram')) : '';
+  if (c.tipo === 'alerta' && c.alvo === 'Solo') {
+    const ok = c.valor === 'normalizado';
+    return { titulo: ok ? 'Sensor de solo voltou a ler' : 'Sensor de solo sem leitura', sub: [ok ? 'Normalizado' : 'Verifique o cabo do sensor', envio].filter(Boolean).join(' · '), ok };
   }
-  renderizarRoda();
-}
-function fecharDetalheEvento() {
-  rodaSelecionadoChave = null;
-  const vazio = document.getElementById('rodaDetalheVazio');
-  const conteudo = document.getElementById('rodaDetalheConteudo');
-  if (vazio) vazio.style.display = '';
-  if (conteudo) { conteudo.style.display = 'none'; conteudo.innerHTML = ''; }
-  renderizarRoda();
+  if (c.tipo === 'notificacao' && AVISO_CAMPO[c.alvo]) {
+    const [campo, nome, cMin, cMax] = AVISO_CAMPO[c.alvo];
+    const v = leituraEm(campo, ms);
+    const min = Number(CONFIG[cMin]), max = Number(CONFIG[cMax]);
+    const faixa = campo === 'temp_interna' ? fmtTemp(min) + '–' + fmtTemp(max) : min + '–' + max + '%';
+    if (c.valor === 'normalizado') return { titulo: nome + ' voltou ao normal', sub: [v !== null ? fmtGrandeza(campo, v) : '', 'faixa ' + faixa].filter(Boolean).join(' · '), ok: true };
+    let regra = 'fora da faixa ' + faixa;
+    if (v !== null && v < min) regra = 'abaixo de ' + (campo === 'temp_interna' ? fmtTemp(min) : min + '%');
+    if (v !== null && v > max) regra = 'acima de ' + (campo === 'temp_interna' ? fmtTemp(max) : max + '%');
+    return { titulo: nome + (v !== null ? ' ' + fmtGrandeza(campo, v) : ' fora da faixa'), sub: regra.charAt(0).toUpperCase() + regra.slice(1) + ' · ' + envio, ok: false };
+  }
+  return { titulo: descricaoEvento(c), sub: origemCurta(c.origem), ok: c.valor === 'normalizado' || c.valor === 'conectado' || c.valor === 'enviada' && c.alvo === 'resumo' };
 }
 
-function desenharRoda(eventosHoje, modoAtual) {
+// ---- Configurações das automações: título curto + faixa na linha de baixo
+function textoConfigAutomacao(c, relacionado) {
+  const a = automacaoPorChave(c.alvo);
+  const v = lerValorAutomacao(c.valor);
+  if (!a || !v) return { titulo: descricaoEvento(c), sub: origemCurta(c.origem) };
+  const nome = 'Automação ' + nomeDaAutomacao(a);
+  const faixa = fmtAuto(a, v.min) + '–' + fmtAuto(a, v.max);
+  const anterior = ultimoTodosComandos.find(x => x.tipo === 'automacao' && x.alvo === c.alvo && msEvento(x) < msEvento(c));
+  const ant = anterior ? lerValorAutomacao(anterior.valor) : null;
+  if (String(c.origem || '').indexOf('pausa') === 0) {
+    const acao = relacionado ? (RELE_ROTULO[a.rele] || a.rele).toLowerCase() + (relacionado.valor === 'ligado' ? ' ligado' : ' desligado') + ' manualmente' : 'comando manual';
+    return { titulo: nome + ' pausada', sub: origemCurta(c.origem) + ' · ' + acao };
+  }
+  if (!v.ativa) return { titulo: nome + ' desativada', sub: origemCurta(c.origem) };
+  if (ant && ant.ativa && (ant.min !== v.min || ant.max !== v.max)) return { titulo: 'Faixa ' + nomeDaAutomacao(a) + ' alterada', sub: origemCurta(c.origem) + ' · ' + faixa };
+  return { titulo: nome + (ant && !ant.ativa ? ' reativada' : ' ativada'), sub: origemCurta(c.origem) + ' · ' + faixa };
+}
+
+// Monta os itens do relógio a partir dos registros (mais recentes primeiro em ultimoTodosComandos).
+function construirItensRoda() {
+  const agora = Date.now(), inicioJanela = agora - 24 * 60 * 60 * 1000;
+  const itens = [];
+  const relesAnel = RODA_ANEIS.map(r => r.rele);
+
+  // 1) Períodos ligados dos equipamentos com anel
+  RODA_ANEIS.forEach(anel => {
+    const evs = ultimoTodosComandos.filter(c => c.tipo === 'rele' && c.alvo === anel.rele && !isNaN(msEvento(c))).slice().reverse();
+    let aberto = null;
+    const antes = evs.filter(c => msEvento(c) < inicioJanela).pop();
+    if (antes && antes.valor === 'ligado') aberto = { ev: antes, ms: inicioJanela, cortado: true };
+    evs.filter(c => msEvento(c) >= inicioJanela && msEvento(c) <= agora).forEach(c => {
+      if (c.valor === 'ligado' && !aberto) aberto = { ev: c, ms: msEvento(c), cortado: false };
+      else if (c.valor !== 'ligado' && aberto) {
+        itens.push(itemPeriodo(anel, aberto, c, msEvento(c)));
+        aberto = null;
+      }
+    });
+    if (aberto) itens.push(itemPeriodo(anel, aberto, null, null));
+  });
+
+  // 2) Eventos pontuais (com junção de registros que são uma ação só)
+  const usados = new Set();
+  const pontos = ultimoEventosHoje.filter(c => !(c.tipo === 'rele' && relesAnel.includes(c.alvo)));
+  pontos.forEach((c, i) => {
+    if (usados.has(c)) return;
+    const ms = msEvento(c);
+    let item = null;
+    if (c.tipo === 'automacao') {
+      const a = automacaoPorChave(c.alvo);
+      const rel = a && String(c.origem || '').indexOf('pausa') === 0
+        ? ultimoTodosComandos.find(x => x.tipo === 'rele' && x.alvo === a.rele && x.origem !== 'automacao' && Math.abs(msEvento(x) - ms) <= 2 * 60000) : null;
+      const t = textoConfigAutomacao(c, rel);
+      item = { categoria: 'automacoes', foco: a ? a.rele : null, cor: RODA_COR.auto, icone: String(c.origem || '').indexOf('pausa') === 0 ? 'pause' : 'bot', vazado: String(c.origem || '').indexOf('pausa') === 0, ...t };
+    } else if (c.tipo === 'acesso') {
+      item = { categoria: 'porta', foco: 'porta', cor: RODA_COR.porta, icone: 'door-open', titulo: 'Porta liberada', sub: origemCurta(c.origem) };
+    } else if (c.tipo === 'alerta' || c.tipo === 'notificacao') {
+      // alerta do solo + aviso do Telegram do solo viram um item
+      let irmao = null;
+      if (c.tipo === 'alerta' || c.alvo === 'solo') {
+        irmao = pontos.find(x => x !== c && !usados.has(x) && ((c.tipo === 'alerta' && x.tipo === 'notificacao' && x.alvo === 'solo') || (c.tipo === 'notificacao' && x.tipo === 'alerta' && x.alvo === 'Solo')) && Math.abs(msEvento(x) - ms) <= 10 * 60000);
+        if (irmao) usados.add(irmao);
+      }
+      const base = c.tipo === 'alerta' ? c : (irmao && irmao.tipo === 'alerta' ? irmao : c);
+      const t = textoAviso(base, base === c ? irmao : c);
+      item = { categoria: 'avisos', foco: 'avisos', cor: t.ok ? RODA_COR.avisoOk : RODA_COR.aviso, icone: t.ok ? 'circle-check' : 'triangle-alert', titulo: t.titulo, sub: t.sub, grave: !t.ok, eventosExtra: irmao ? [irmao] : [] };
+    } else if (c.tipo === 'fase') {
+      item = { categoria: 'fase', foco: null, cor: RODA_COR.fase, icone: 'sprout', titulo: descricaoEvento(c), sub: origemCurta(c.origem) };
+    } else if (c.tipo === 'rele') {
+      const ligado = c.valor === 'ligado';
+      const depois = ultimoTodosComandos.find(x => x.tipo === 'rele' && x.alvo === c.alvo && msEvento(x) > ms);
+      item = { categoria: 'equipamentos', foco: null, cor: RODA_COR.ligado, vazado: !ligado, icone: RELE_ICONE[c.alvo] || 'plug',
+        titulo: (RELE_ROTULO[c.alvo] || c.alvo) + (ligado ? ' ligado' : ' desligado'),
+        sub: origemCurta(c.origem) + (!depois ? (ligado ? ' · continua ligado' : ' · continua desligado') : '') };
+    }
+    if (!item) return;
+    // itens juntados ficam na hora do primeiro registro (ex.: alerta antes do aviso do Telegram)
+    itens.push(Object.assign(item, { id: 'p|' + chaveEventos([c]), tipo: 'ponto', inicioMs: Math.min(ms, ...(item.eventosExtra || []).map(msEvento)), fimMs: null, eventos: [c].concat(item.eventosExtra || []) }));
+  });
+  return itens;
+}
+
+function itemPeriodo(anel, aberto, evFim, fimMs) {
+  const a = automacaoDoRele(anel.rele);
+  const nome = RELE_ROTULO[anel.rele] || anel.rele;
+  const ini = aberto.ms, ate = fimMs === null ? Date.now() : fimMs;
+  const dur = duracaoCurta(ate - ini);
+  const campo = a ? a.campoLeitura : null;
+  const vIni = campo ? leituraEm(campo, ini) : null;
+  const vFim = campo ? (fimMs === null ? (ultimaLeitura ? Number(ultimaLeitura[campo]) : null) : leituraEm(campo, fimMs)) : null;
+  const leituras = (vIni !== null && vFim !== null) ? fmtGrandeza(campo, vIni) + ' → ' + fmtGrandeza(campo, vFim) : '';
+  const auto = aberto.ev.origem === 'automacao';
+  const sub = fimMs === null
+    ? htmlOrigem(aberto.ev.origem) + ' · ' + escapeHtml(dur) + ' · em andamento'
+    : htmlOrigem(aberto.ev.origem) + (leituras ? ' · ' + escapeHtml(leituras) : ' · ' + escapeHtml(dur));
+  return {
+    id: 'a|' + anel.rele + '|' + ini, tipo: 'periodo', categoria: 'equipamentos', foco: anel.rele, anel, cor: anel.cor, icone: anel.icone,
+    inicioMs: ini, fimMs, eventos: [aberto.ev].concat(evFim ? [evFim] : []), auto, cortado: aberto.cortado,
+    titulo: nome + ' ligado' + (fimMs === null ? '' : ' por ' + dur), subHtml: sub, leituras, campo, evIni: aberto.ev, evFim,
+  };
+}
+
+function itemVisivel(it) {
+  if (!filtrosRoda[it.categoria]) return false;
+  if (focoRoda && it.foco !== focoRoda) return false;
+  return true;
+}
+
+// ---- Resumo das 24h (os chips também filtram)
+function renderizarResumoRoda() {
+  const el = document.getElementById('rrResumo');
+  if (!el) return;
+  const chips = RODA_ANEIS.map(anel => {
+    const periodos = rodaItens.filter(i => i.tipo === 'periodo' && i.anel === anel);
+    const total = periodos.reduce((s, p) => s + ((p.fimMs === null ? Date.now() : p.fimMs) - p.inicioMs), 0);
+    const acoes = periodos.reduce((s, p) => s + p.eventos.filter(e => !p.cortado || e !== p.evIni).length, 0);
+    return { foco: anel.rele, cor: anel.cor, icone: anel.icone, nome: RELE_ROTULO[anel.rele] || anel.rele,
+      sub: (total > 0 ? duracaoCompacta(total) + ' ligado' : 'desligado') + ' · ' + acoes + (acoes === 1 ? ' ação' : ' ações') };
+  });
+  const portas = rodaItens.filter(i => i.categoria === 'porta');
+  const avisos = rodaItens.filter(i => i.categoria === 'avisos' && i.grave);
+  const ultimo = l => l.length ? ' · ' + hhmmDeMs(Math.max(...l.map(i => i.inicioMs))) : '';
+  chips.push({ foco: 'porta', cor: RODA_COR.porta, icone: 'door-open', nome: 'Porta', sub: portas.length ? portas.length + (portas.length === 1 ? ' abertura' : ' aberturas') + ultimo(portas) : 'nenhuma abertura' });
+  chips.push({ foco: 'avisos', cor: RODA_COR.aviso, icone: 'triangle-alert', nome: 'Avisos', sub: avisos.length ? avisos.length + (avisos.length === 1 ? ' alerta' : ' alertas') + ultimo(avisos) : 'nenhum alerta' });
+  el.innerHTML = chips.map(c =>
+    '<button type="button" class="rr-chip' + (focoRoda === c.foco ? ' ativo' : '') + '" data-foco="' + c.foco + '" aria-pressed="' + (focoRoda === c.foco) + '" style="--c:' + c.cor + ';--cs:' + corSuave(c.cor, 0.1) + '">' +
+      '<span class="rr-chip-icone" style="background:' + corSuave(c.cor) + ';color:' + c.cor + '"><svg data-lucide="' + c.icone + '"></svg></span>' +
+      '<span><strong>' + escapeHtml(c.nome) + '</strong><small>' + escapeHtml(c.sub) + '</small></span></button>').join('');
+}
+
+function desenharRoda(itens, modoAtual) {
   const svg = document.getElementById('rodaEventos');
   svg.innerHTML = '';
-  const cx = 180, cy = 180, raioTrilha = 145;
+  const cx = 200, cy = 200, R = RODA_RAIO;
+  const agora = new Date();
+  const horaAgora = agora.getHours() + agora.getMinutes() / 60;
+  const pt = (r, h) => pontoNoCirculo(cx, cy, r, anguloGraus(h));
+  const arco = (r, h0, h1) => caminhoArco(cx, cy, r, h0, h1);
 
-  svg.appendChild(svgEl('circle', { cx, cy, r: raioTrilha, fill: 'none', stroke: '#242a27', 'stroke-width': 26, opacity: 0.6 }));
+  // trilha externa + janela de luz da fase ativa (18/6 na vegetação, 12/12 na floração)
+  svg.appendChild(svgEl('circle', { cx, cy, r: R, fill: 'none', stroke: '#242a27', 'stroke-width': 22, opacity: 0.7 }));
+  const janela = janelaDoModo(modoAtual);
+  svg.appendChild(svgEl('path', { d: arco(R, janela.inicio, janela.fim), fill: 'none', stroke: '#33402d', 'stroke-width': 22 }));
 
-  if (filtrosAtivos.janela) {
-    const janela = janelaDoModo(modoAtual);
-    svg.appendChild(svgEl('path', { d: caminhoArco(cx, cy, raioTrilha, janela.inicio, janela.fim), fill: 'none', stroke: '#3c4a34', 'stroke-width': 26, 'stroke-linecap': 'butt', opacity: 0.9 }));
-  }
+  // anéis dos equipamentos
+  RODA_ANEIS.forEach(anel => {
+    const apagado = focoRoda && focoRoda !== anel.rele ? 0.25 : 1;
+    svg.appendChild(svgEl('circle', { cx, cy, r: anel.raio, fill: 'none', stroke: '#202522', 'stroke-width': 9, opacity: apagado }));
+    if (!filtrosRoda.equipamentos) return;
+    itens.filter(i => i.tipo === 'periodo' && i.anel === anel).forEach(p => {
+      const h0 = horaFracDeMs(p.inicioMs);
+      let h1 = horaFracDeMs(p.fimMs === null ? Date.now() : p.fimMs);
+      if ((h1 - h0 + 24) % 24 < 0.12) h1 = h0 + 0.12; // períodos curtos continuam visíveis
+      const g = svgEl('g', { class: 'roda-evento-dot rr-arco', tabindex: '0', role: 'button', 'aria-label': p.titulo, opacity: apagado });
+      const sel = rodaSelecao.includes(p.id);
+      if (sel) g.appendChild(svgEl('path', { d: arco(anel.raio, h0, h1), fill: 'none', stroke: '#eef1ee', 'stroke-width': 14, 'stroke-linecap': 'round' }));
+      g.appendChild(svgEl('path', { d: arco(anel.raio, h0, h1), fill: 'none', stroke: anel.cor, 'stroke-width': 9, 'stroke-linecap': 'round' }));
+      g.appendChild(svgEl('path', { d: arco(anel.raio, h0, h1), fill: 'none', stroke: 'transparent', 'stroke-width': 18 }));
+      if (p.fimMs === null) { const q = pt(anel.raio, h1); g.appendChild(svgEl('circle', { cx: q.x.toFixed(2), cy: q.y.toFixed(2), r: 5.5, fill: anel.cor, stroke: '#121414', 'stroke-width': 2 })); }
+      const abrir = () => selecionarRoda([p.id], false);
+      g.addEventListener('click', abrir);
+      g.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); } });
+      svg.appendChild(g);
+    });
+  });
 
+  // marcas de hora
   for (let h = 0; h < 24; h++) {
     const principal = h % 3 === 0;
-    const p1 = pontoNoCirculo(cx, cy, raioTrilha + 15, anguloGraus(h));
-    const p2 = pontoNoCirculo(cx, cy, raioTrilha + (principal ? 27 : 20), anguloGraus(h));
+    const p1 = pt(R + 14, h), p2 = pt(R + (principal ? 24 : 18), h);
     svg.appendChild(svgEl('line', { x1: p1.x.toFixed(2), y1: p1.y.toFixed(2), x2: p2.x.toFixed(2), y2: p2.y.toFixed(2), stroke: principal ? '#8a938e' : '#3a423c', 'stroke-width': principal ? 1.5 : 1 }));
     if (principal) {
-      const pLabel = pontoNoCirculo(cx, cy, raioTrilha + 39, anguloGraus(h));
-      const texto = svgEl('text', { x: pLabel.x.toFixed(2), y: pLabel.y.toFixed(2), class: 'roda-hora-label' });
-      texto.textContent = String(h).padStart(2, '0') + 'h';
+      const pl = pt(R + 36, h);
+      const texto = svgEl('text', { x: pl.x.toFixed(2), y: pl.y.toFixed(2), class: 'roda-hora-label', 'dominant-baseline': 'central' });
+      texto.textContent = pad2(h) + 'h';
       svg.appendChild(texto);
     }
   }
 
-  const agora = new Date();
-  const horaAgora = agora.getHours() + agora.getMinutes() / 60;
-  const pAgora = pontoNoCirculo(cx, cy, raioTrilha, anguloGraus(horaAgora));
-  svg.appendChild(svgEl('line', { x1: cx, y1: cy, x2: pAgora.x.toFixed(2), y2: pAgora.y.toFixed(2), stroke: '#8a938e', 'stroke-width': 1.5, 'stroke-dasharray': '3 4' }));
-  svg.appendChild(svgEl('circle', { cx: pAgora.x.toFixed(2), cy: pAgora.y.toFixed(2), r: 6, fill: 'none', stroke: '#eef1ee', 'stroke-width': 1.5, class: 'roda-agora-pulso' }));
-  svg.appendChild(svgEl('circle', { cx: pAgora.x.toFixed(2), cy: pAgora.y.toFixed(2), r: 4, fill: '#eef1ee' }));
-  svg.appendChild(svgEl('circle', { cx, cy, r: 5, fill: '#eef1ee' }));
-  const pLabelAgora = pontoNoCirculo(cx, cy, raioTrilha - 24, anguloGraus(horaAgora));
-  const textoAgora = svgEl('text', { x: pLabelAgora.x.toFixed(2), y: pLabelAgora.y.toFixed(2), 'text-anchor': 'middle', 'font-size': '11', 'font-weight': '700', fill: '#eef1ee' });
-  textoAgora.textContent = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
-  svg.appendChild(textoAgora);
-
-  const areaCentro = svgEl('circle', { cx, cy, r: 12, fill: 'transparent', style: 'cursor:pointer;' });
-  areaCentro.addEventListener('click', fecharDetalheEvento);
-  svg.appendChild(areaCentro);
-
-  const clusters = agruparEventosProximos(eventosHoje, 8);
-  clusters.forEach(cluster => {
-    const p = pontoNoCirculo(cx, cy, raioTrilha, anguloGraus(cluster.horaFracMedia));
-    const grupo = svgEl('g', { class: 'roda-evento-dot', tabindex: '0', role: 'button' });
-    grupo.appendChild(svgEl('circle', { cx: p.x.toFixed(2), cy: p.y.toFixed(2), r: 16, fill: 'transparent' }));
-    const multiplo = cluster.membros.length > 1;
-    const cor = multiplo ? '#dfe4de' : corDoEvento(cluster.membros[0]);
-    grupo.appendChild(svgEl('circle', { cx: p.x.toFixed(2), cy: p.y.toFixed(2), r: multiplo ? 9 : 7, fill: cor, stroke: '#121414', 'stroke-width': 2 }));
-    if (multiplo) {
-      const contagem = svgEl('text', { x: p.x.toFixed(2), y: p.y.toFixed(2), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '9', 'font-weight': '700', fill: '#121414' });
-      contagem.textContent = String(cluster.membros.length);
-      grupo.appendChild(contagem);
-    }
-    const chave = chaveEventos(cluster.membros);
-    if (chave === rodaSelecionadoChave) grupo.classList.add('selecionado');
-    const abrir = () => mostrarDetalheEvento(cluster.membros);
-    grupo.addEventListener('click', abrir);
-    grupo.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); } });
-    svg.appendChild(grupo);
+  // eventos pontuais (agrupados quando próximos)
+  const pontos = itens.filter(i => i.tipo === 'ponto');
+  const ordenados = pontos.map(it => ({ it, h: horaFracDeMs(it.inicioMs) })).sort((a, b) => a.h - b.h);
+  const clusters = [];
+  ordenados.forEach(o => {
+    const ult = clusters[clusters.length - 1];
+    if (ult && (o.h - ult.hMax) * 60 <= 8) { ult.membros.push(o.it); ult.hMax = o.h; ult.soma += o.h; }
+    else clusters.push({ membros: [o.it], hMax: o.h, soma: o.h });
   });
+  clusters.forEach(cl => {
+    const q = pt(R, cl.soma / cl.membros.length);
+    const g = svgEl('g', { class: 'roda-evento-dot', tabindex: '0', role: 'button', 'aria-label': cl.membros.map(m => m.titulo).join('; ') });
+    g.appendChild(svgEl('circle', { cx: q.x.toFixed(2), cy: q.y.toFixed(2), r: 16, fill: 'transparent' }));
+    const ids = cl.membros.map(m => m.id);
+    const sel = ids.every(id => rodaSelecao.includes(id)) && rodaSelecao.length === ids.length;
+    if (cl.membros.length > 1) {
+      g.appendChild(svgEl('circle', { cx: q.x.toFixed(2), cy: q.y.toFixed(2), r: 9, fill: '#dfe4de', stroke: sel ? '#eef1ee' : '#121414', 'stroke-width': sel ? 3 : 2 }));
+      const t = svgEl('text', { x: q.x.toFixed(2), y: q.y.toFixed(2), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '9', 'font-weight': '700', fill: '#121414' });
+      t.textContent = String(cl.membros.length);
+      g.appendChild(t);
+    } else {
+      const m = cl.membros[0];
+      if (m.vazado) g.appendChild(svgEl('circle', { cx: q.x.toFixed(2), cy: q.y.toFixed(2), r: 5.5, fill: '#121414', stroke: sel ? '#eef1ee' : m.cor, 'stroke-width': sel ? 3.5 : 2.5 }));
+      else g.appendChild(svgEl('circle', { cx: q.x.toFixed(2), cy: q.y.toFixed(2), r: 6.5, fill: m.cor, stroke: sel ? '#eef1ee' : '#121414', 'stroke-width': sel ? 3 : 2 }));
+    }
+    const abrir = () => selecionarRoda(ids, false);
+    g.addEventListener('click', abrir);
+    g.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrir(); } });
+    svg.appendChild(g);
+  });
+
+  // ontem: esmaece o trecho entre agora e a meia-noite (é o dia anterior no relógio de 24h)
+  if (horaAgora < 23.9) {
+    svg.appendChild(svgEl('path', { d: arco(128, horaAgora + 0.05, 24), fill: 'none', stroke: '#121414', 'stroke-width': 72, opacity: 0.62, 'pointer-events': 'none' }));
+    const pl = pt(86, horaAgora + (24 - horaAgora) / 2);
+    const t = svgEl('text', { x: pl.x.toFixed(2), y: pl.y.toFixed(2), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '9.5', 'font-weight': '700', fill: '#8a938e', 'letter-spacing': '.08em', 'pointer-events': 'none' });
+    t.textContent = 'ONTEM';
+    if (24 - horaAgora > 1.2) svg.appendChild(t);
+    const m0 = pt(RODA_ANEIS[RODA_ANEIS.length - 1].raio - 10, 0), m1 = pt(R + 12, 0);
+    svg.appendChild(svgEl('line', { x1: m0.x.toFixed(2), y1: m0.y.toFixed(2), x2: m1.x.toFixed(2), y2: m1.y.toFixed(2), stroke: '#8a938e', 'stroke-width': 1, 'stroke-dasharray': '2 3', 'pointer-events': 'none' }));
+  }
+
+  // ponteiro de agora
+  const pa = pt(R, horaAgora), pi = pt(88, horaAgora);
+  svg.appendChild(svgEl('line', { x1: pi.x.toFixed(2), y1: pi.y.toFixed(2), x2: pa.x.toFixed(2), y2: pa.y.toFixed(2), stroke: '#eef1ee', 'stroke-width': 1.5, 'stroke-dasharray': '3 4', 'pointer-events': 'none' }));
+  svg.appendChild(svgEl('circle', { cx: pa.x.toFixed(2), cy: pa.y.toFixed(2), r: 7, fill: 'none', stroke: '#eef1ee', 'stroke-width': 1.5, class: 'roda-agora-pulso', 'pointer-events': 'none' }));
+  svg.appendChild(svgEl('circle', { cx: pa.x.toFixed(2), cy: pa.y.toFixed(2), r: 5, fill: '#eef1ee', stroke: '#121414', 'stroke-width': 2, 'pointer-events': 'none' }));
+
+  // centro: hora e resumo (toque limpa a seleção)
+  const visiveis = itens.length;
+  const ciclos = itens.filter(i => i.tipo === 'periodo' && i.auto).length;
+  const centro = svgEl('g', { style: 'cursor:pointer;' });
+  centro.appendChild(svgEl('circle', { cx, cy, r: 70, fill: 'transparent' }));
+  const tHora = svgEl('text', { x: cx, y: cy - 16, 'text-anchor': 'middle', 'font-size': '30', 'font-weight': '800', fill: '#eef1ee', 'letter-spacing': '-.02em' });
+  tHora.textContent = pad2(agora.getHours()) + ':' + pad2(agora.getMinutes());
+  const tEv = svgEl('text', { x: cx, y: cy + 8, 'text-anchor': 'middle', 'font-size': '12', fill: '#8a938e' });
+  tEv.textContent = visiveis + (visiveis === 1 ? ' evento' : ' eventos') + ' em 24h';
+  centro.appendChild(tHora); centro.appendChild(tEv);
+  if (ciclos > 0) {
+    const tC = svgEl('text', { x: cx, y: cy + 26, 'text-anchor': 'middle', 'font-size': '12', 'font-weight': '700', fill: RODA_COR.auto });
+    tC.textContent = ciclos + (ciclos === 1 ? ' ciclo automático' : ' ciclos automáticos');
+    centro.appendChild(tC);
+  }
+  centro.addEventListener('click', () => selecionarRoda([], false));
+  svg.appendChild(centro);
+
+  // legenda dos anéis e da luz
+  const leg = document.getElementById('rrAneis');
+  if (leg) {
+    const h = HORAS_LUZ_POR_MODO[modoAtual === 'floracao' ? 'floracao' : 'vegetativo'];
+    leg.innerHTML = RODA_ANEIS.map(a => '<span><b style="background:' + a.cor + '"></b>' + escapeHtml(RELE_ROTULO[a.rele] || a.rele) + '</span>').join('') +
+      '<span><b style="background:#33402d"></b>Luz ' + minParaHHMM(janela.inicioMin) + ' → ' + minParaHHMM(janela.fimMin) + ' · ' + h + '/' + (24 - h) + 'h</span>';
+  }
 }
 
-function atualizarListaEventos(eventos) {
-  const lista = document.getElementById('rodaLista');
-  const contagemEl = document.getElementById('rodaListaContagem');
-  if (!lista) return;
-  const ordenados = eventos.slice().sort((a, b) => horaFracionada(timestampEvento(b)) - horaFracionada(timestampEvento(a)));
-  if (contagemEl) contagemEl.textContent = ordenados.length + (ordenados.length === 1 ? ' evento' : ' eventos');
-  if (ordenados.length === 0) { lista.innerHTML = '<div class="roda-lista-vazio">Nenhum evento no filtro atual, nas \u00faltimas 24h.</div>'; return; }
-  lista.innerHTML = ordenados.map((ev, i) => {
-    const hhmm = timestampEvento(ev) ? String(timestampEvento(ev)).substring(11, 16) : '--:--';
-    const selecionado = chaveEventos([ev]) === rodaSelecionadoChave ? ' selecionado' : '';
-    return '<button type="button" class="roda-lista-item' + selecionado + '" data-i="' + i + '">' +
-      '<span class="roda-lista-dot" style="background:' + corDoEvento(ev) + ';"></span>' +
-      '<span class="roda-lista-hora">' + hhmm + '</span>' +
-      '<span class="roda-lista-desc">' + escapeHtml(descricaoEvento(ev)) + '</span>' +
-      '<span class="roda-lista-origem">' + escapeHtml(ev.origem || '') + '</span></button>';
-  }).join('');
-  lista.querySelectorAll('.roda-lista-item').forEach(btn => btn.addEventListener('click', () => mostrarDetalheEvento([ordenados[Number(btn.dataset.i)]])));
+function linhasDetalhe(it) {
+  const L = [];
+  if (it.tipo === 'periodo') {
+    if (it.leituras) L.push([it.campo === 'temp_interna' ? 'Temperatura' : 'Umidade', it.leituras]);
+    const a = automacaoDoRele(it.anel.rele);
+    if (it.auto && a) {
+      const f = faixaAutomacaoEm(a, it.inicioMs);
+      L.push(['Regra', a.rotuloMin.toLowerCase() + ' ' + fmtAuto(a, f.min) + ' · ' + a.rotuloMax.toLowerCase() + ' ' + fmtAuto(a, f.max)]);
+    } else {
+      L.push(['Ligado por', origemCurta(it.evIni.origem)]);
+    }
+    if (it.evFim && it.evFim.origem !== it.evIni.origem) L.push(['Desligado por', origemCurta(it.evFim.origem)]);
+    if (it.cortado) L.push(['Observação', 'já estava ligado antes das últimas 24h']);
+  } else {
+    const ev = it.eventos[0];
+    if (ehEventoAutomacao(ev)) detalheAutomacao(ev).forEach(l => L.push(l));
+    if (it.categoria !== 'automacoes') L.push(['Origem', origemCurta(ev.origem)]);
+  }
+  L.push(['Quando', quandoTexto(it.inicioMs)]);
+  return L;
+}
+
+function renderizarDetalheRoda() {
+  const el = document.getElementById('rrDetalhe');
+  if (!el) return;
+  const sel = rodaSelecao.map(id => rodaItens.find(i => i.id === id)).filter(Boolean);
+  if (!sel.length) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  const fechar = '<button type="button" class="rr-fechar" data-rr-fechar>fechar <svg data-lucide="x"></svg></button>';
+  if (sel.length === 1) {
+    const it = sel[0];
+    const hora = it.tipo === 'periodo' ? hhmmDeMs(it.inicioMs) + ' – ' + (it.fimMs === null ? 'agora' : hhmmDeMs(it.fimMs)) : hhmmDeMs(it.inicioMs);
+    const tag = it.tipo === 'periodo' ? (it.auto ? '<span class="rr-tag auto">Automático</span>' : '<span class="rr-tag">Manual</span>') : '';
+    el.style.setProperty('--c', it.cor);
+    el.innerHTML = '<div class="rr-detalhe-topo"><span class="rr-detalhe-hora">' + hora + '</span>' + fechar + '</div>' +
+      '<h3>' + escapeHtml(it.titulo) + ' ' + tag + '</h3>' +
+      '<div class="rr-linhas">' + linhasDetalhe(it).map(([k, v]) => '<span>' + escapeHtml(k) + '</span><div>' + escapeHtml(v) + '</div>').join('') + '</div>';
+  } else {
+    el.style.setProperty('--c', '#dfe4de');
+    el.innerHTML = '<div class="rr-detalhe-topo"><span class="rr-detalhe-hora">' + sel.length + ' eventos próximos</span>' + fechar + '</div>' +
+      '<div class="rr-mini">' + sel.sort((a, b) => a.inicioMs - b.inicioMs).map(it =>
+        '<button type="button" data-rr-item="' + escapeHtml(it.id) + '"><i style="background:' + it.cor + '"></i><b>' + hhmmDeMs(it.inicioMs) + '</b>' + escapeHtml(it.titulo) + '</button>').join('') + '</div>';
+  }
+}
+
+function htmlItemLista(it) {
+  const sel = rodaSelecao.length === 1 && rodaSelecao[0] === it.id;
+  const hora = it.tipo === 'periodo'
+    ? hhmmDeMs(it.inicioMs) + '<small' + (it.fimMs === null ? ' class="vivo"' : '') + '>' + (it.fimMs === null ? 'agora' : hhmmDeMs(it.fimMs)) + '</small>'
+    : hhmmDeMs(it.inicioMs);
+  return '<button type="button" class="rr-ev' + (sel ? ' sel' : '') + '" data-rr-item="' + escapeHtml(it.id) + '" style="--c:' + it.cor + '">' +
+    '<span class="rr-ev-icone" style="background:' + corSuave(it.cor) + ';color:' + it.cor + '"><svg data-lucide="' + it.icone + '"></svg></span>' +
+    '<span class="rr-ev-texto"><strong>' + escapeHtml(it.titulo) + '</strong><span>' + (it.subHtml || escapeHtml(it.sub || '')) + '</span></span>' +
+    '<span class="rr-ev-hora">' + hora + '</span></button>';
+}
+
+function renderizarListaRoda(itens) {
+  const el = document.getElementById('rrLista');
+  if (!el) return;
+  const meiaNoite = inicioDoDia(Date.now());
+  const ord = itens.slice().sort((a, b) => b.inicioMs - a.inicioMs);
+  const hoje = ord.filter(i => i.inicioMs >= meiaNoite), ontem = ord.filter(i => i.inicioMs < meiaNoite);
+  const mostrar = rodaListaExpandida ? hoje : hoje.slice(0, RODA_LIMITE_LISTA);
+  let html = '<div class="rr-lista-cab"><h4>Hoje</h4><small>' + hoje.length + (hoje.length === 1 ? ' evento' : ' eventos') + '</small></div>';
+  html += hoje.length ? '<div class="rr-lista">' + mostrar.map(htmlItemLista).join('') + '</div>' : '<div class="rr-vazio">Nenhum evento hoje' + (focoRoda || Object.values(filtrosRoda).includes(false) ? ' no filtro atual' : '') + '.</div>';
+  if (hoje.length > RODA_LIMITE_LISTA) {
+    html += '<button type="button" class="rr-mais" data-rr-mais><svg data-lucide="' + (rodaListaExpandida ? 'chevron-up' : 'chevron-down') + '"></svg>' +
+      (rodaListaExpandida ? 'Mostrar menos' : 'Ver mais ' + (hoje.length - RODA_LIMITE_LISTA) + ' de hoje') + '</button>';
+  }
+  if (ontem.length) {
+    const desde = hhmmDeMs(Date.now());
+    html += '<button type="button" class="rr-ontem" data-rr-ontem aria-expanded="' + rodaOntemAberto + '"><span>Ontem · ' + ontem.length + (ontem.length === 1 ? ' evento' : ' eventos') + ' (a partir de ' + desde + ')</span><svg data-lucide="' + (rodaOntemAberto ? 'chevron-down' : 'chevron-right') + '"></svg></button>';
+    if (rodaOntemAberto) html += '<div class="rr-lista rr-lista-ontem">' + ontem.map(htmlItemLista).join('') + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function renderizarFiltrosRoda() {
+  document.querySelectorAll('#rrFiltros [data-rr-filtro]').forEach(btn => {
+    const on = filtrosRoda[btn.dataset.rrFiltro];
+    btn.classList.toggle('off', !on);
+    btn.setAttribute('aria-pressed', String(on));
+  });
 }
 
 function renderizarRoda() {
   if (!document.getElementById('rodaEventos')) return;
-  const filtrados = eventosFiltrados();
-  desenharRoda(filtrados, ultimoModoAtual);
-  atualizarListaEventos(filtrados);
+  rodaItens = construirItensRoda();
+  rodaSelecao = rodaSelecao.filter(id => rodaItens.some(i => i.id === id));
+  const visiveis = rodaItens.filter(itemVisivel);
+  renderizarResumoRoda();
+  renderizarFiltrosRoda();
+  desenharRoda(visiveis, ultimoModoAtual);
+  renderizarDetalheRoda();
+  renderizarListaRoda(visiveis);
+  if (window.lucide) lucide.createIcons();
 }
 
-const rodaLegendaEl = document.getElementById('rodaLegenda');
-if (rodaLegendaEl) {
-  rodaLegendaEl.addEventListener('click', ev => {
-    const btn = ev.target.closest('.roda-legenda-item');
-    if (!btn) return;
-    const filtro = btn.dataset.filtro;
-    if (!(filtro in filtrosAtivos)) return;
-    filtrosAtivos[filtro] = !filtrosAtivos[filtro];
-    btn.classList.toggle('ativo', filtrosAtivos[filtro]);
-    fecharDetalheEvento();
-  });
-}
-
-function atualizarStatusRoda(todosComandos) {
-  const container = document.getElementById('rodaStatus');
-  container.innerHTML = '';
-  const agora = Date.now();
-  RELES_NA_RODA.forEach(nomeRele => {
-    const ultimo = todosComandos.find(c => c.tipo === 'rele' && c.alvo === nomeRele);
-    const item = document.createElement('div');
-    item.className = 'roda-status-item';
-    if (!ultimo) {
-      item.innerHTML = '<div class="roda-status-nome">' + escapeHtml(nomeRele) + '</div><div class="roda-status-valor">sem registro</div>';
-    } else {
-      const ligado = ultimo.valor === 'ligado';
-      const desde = new Date((ultimo.dispositivo_timestamp || ultimo.criado_em).replace(' ', 'T'));
-      const duracao = formatarDuracao(agora - desde.getTime());
-      item.innerHTML = '<div class="roda-status-nome">' + escapeHtml(nomeRele) + '</div><div class="roda-status-valor ' + (ligado ? 'on' : 'off') + '">' + (ligado ? 'ligado' : 'desligado') + ' h\u00e1 ' + duracao + '</div>';
-    }
-    container.appendChild(item);
-  });
-  const ultimoAcesso = todosComandos.find(c => c.tipo === 'acesso');
-  const itemAcesso = document.createElement('div');
-  itemAcesso.className = 'roda-status-item';
-  if (!ultimoAcesso) {
-    itemAcesso.innerHTML = '<div class="roda-status-nome">Porta</div><div class="roda-status-valor">sem registro</div>';
-  } else {
-    const desde = new Date((ultimoAcesso.dispositivo_timestamp || ultimoAcesso.criado_em).replace(' ', 'T'));
-    const duracao = formatarDuracao(agora - desde.getTime());
-    itemAcesso.innerHTML = '<div class="roda-status-nome">Porta</div><div class="roda-status-valor acesso">liberada h\u00e1 ' + duracao + '</div>';
+function selecionarRoda(ids, rolarParaDetalhe) {
+  const mesmo = ids.length && ids.length === rodaSelecao.length && ids.every(id => rodaSelecao.includes(id));
+  rodaSelecao = mesmo ? [] : ids;
+  renderizarRoda();
+  if (rolarParaDetalhe && rodaSelecao.length) {
+    const el = document.getElementById('rrDetalhe');
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
-  container.appendChild(itemAcesso);
 }
+// compatibilidade com chamadas antigas
+function fecharDetalheEvento() { selecionarRoda([], false); }
+
+document.addEventListener('click', ev => {
+  const chip = ev.target.closest('#rrResumo [data-foco]');
+  if (chip) { focoRoda = focoRoda === chip.dataset.foco ? null : chip.dataset.foco; rodaSelecao = []; rodaListaExpandida = false; renderizarRoda(); return; }
+  const filtro = ev.target.closest('#rrFiltros [data-rr-filtro]');
+  if (filtro) { const k = filtro.dataset.rrFiltro; filtrosRoda[k] = !filtrosRoda[k]; rodaSelecao = []; renderizarRoda(); return; }
+  if (ev.target.closest('[data-rr-fechar]')) { selecionarRoda([], false); return; }
+  if (ev.target.closest('[data-rr-mais]')) { rodaListaExpandida = !rodaListaExpandida; renderizarRoda(); return; }
+  if (ev.target.closest('[data-rr-ontem]')) { rodaOntemAberto = !rodaOntemAberto; renderizarRoda(); return; }
+  const item = ev.target.closest('[data-rr-item]');
+  if (item) { const naLista = !!item.closest('#rrLista'); selecionarRoda([item.dataset.rrItem], naLista); }
+});
 
 async function carregarRodaEventos() {
   const d = await buscarJson('comandos.php?limite=300');
   const todos = d.dados || [];
   const modoAtual = d.modo_atual === 'floracao' ? 'floracao' : 'vegetativo';
-
-  document.getElementById('pillVegetativo').classList.toggle('ativo', modoAtual === 'vegetativo');
-  document.getElementById('pillFloracao').classList.toggle('ativo', modoAtual === 'floracao');
+  automacoesEsp = d.automacoes || {};
+  resolverPendenciasAutomacao();
 
   modoAtualParaLuz = modoAtual;
   ultimoTodosComandos = todos;
 
   const agora = Date.now();
   const eventosHoje = todos.filter(c => {
-    if (c.tipo !== 'acesso' && c.tipo !== 'alerta' && c.tipo !== 'fase' && c.tipo !== 'notificacao' && !(c.tipo === 'rele' && RELES_NA_RODA.includes(c.alvo))) return false;
+    const ehAutomacao = c.tipo === 'automacao' && c.origem !== 'boot'; // o boot só reconfirma a configuração
+    if (!ehAutomacao && c.tipo !== 'acesso' && c.tipo !== 'alerta' && c.tipo !== 'fase' && c.tipo !== 'notificacao' && !(c.tipo === 'rele' && RELES_NA_RODA.includes(c.alvo))) return false;
     const ts = timestampEvento(c);
     if (!ts) return false;
     const t = new Date(String(ts).replace(' ', 'T')).getTime();
@@ -1768,23 +2055,23 @@ async function carregarRodaEventos() {
   ultimoEventosHoje = eventosHoje;
   ultimoModoAtual = modoAtual;
   renderizarRoda();
-  atualizarStatusRoda(todos);
   atualizarBotoesComando(todos, modoAtual);
   atualizarCardLuz();
-  if (abaAtual === 'automacao') {
+  if (abaAtual === 'fotoperiodo') {
     // preserva rascunho em edição
-    if (rascunhoTimer.vegetativo === null && rascunhoTimer.floracao === null) renderizarAutomacao();
-    else atualizarStatusAutomacao();
+    if (rascunhoTimer.vegetativo === null && rascunhoTimer.floracao === null) renderizarFotoperiodo();
+    else atualizarStatusFotoperiodo();
   }
 }
 
 /* ==================== Comandos (botões) ==================== */
-const RELES_CONTROLAVEIS = ['Desumidificador', 'Ventilador', 'Entrada de Ar 1', 'Entrada de Ar 2', 'Saida de Ar'];
+const RELES_CONTROLAVEIS = ['Umidificador', 'Ventilador', 'Irrigacao', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
 const RELE_ICONE = {
-  'Desumidificador': 'droplet',
+  'Umidificador': 'droplets',
   'Ventilador': 'fan',
-  'Entrada de Ar 1': 'wind',
-  'Entrada de Ar 2': 'wind',
+  'Irrigacao': 'shower-head',
+  'Entrada de Ar': 'wind',
+  'Aquecedor': 'heater',
   'Saida de Ar': 'arrow-up-from-line',
 };
 
@@ -1809,31 +2096,400 @@ function atualizarPill(id, texto, variante) {
   el.className = 'pill' + (variante ? ' ' + variante : ' pill-neutro');
 }
 
-function atualizarBotoesComando(todosComandos, modoAtual) {
-  atualizarPill('cmdModoCultivoPill', modoAtual === 'floracao' ? 'Flora\u00e7\u00e3o' : 'Vegeta\u00e7\u00e3o', 'pill-auto');
+// Pendências dos cards de controle (luz/acesso) enquanto o ESP32 não confirma.
+let luzPendente = null;      // { valor: 'auto'|'ligada'|'desligada', ate }
+let acessoConfirmando = false;
+let acessoConfirmTimeout = null;
+let acessoEnviando = false;
+let ultimoModoCmd = 'vegetativo';
 
+function duracaoDesde(registro) {
+  if (!registro) return '';
+  const desde = new Date(String(timestampEvento(registro)).replace(' ', 'T')).getTime();
+  if (isNaN(desde)) return '';
+  const dur = formatarDuracao(Date.now() - desde);
+  return dur === 'agora mesmo' ? dur : 'há ' + dur;
+}
+
+function atualizarBotoesComando(todosComandos, modoAtual) {
+  ultimoModoCmd = modoAtual === 'floracao' ? 'floracao' : 'vegetativo';
   const luzEstado = estadoAtualLuz(todosComandos);
   ultimoLuzEstado = luzEstado;
-  document.querySelectorAll('#cmdLuz .cmd-btn').forEach(btn => {
-    const selecionado = btn.dataset.valor === luzEstado;
-    btn.classList.remove('selecionado', 'ativo-on', 'ativo-off');
-    if (selecionado) btn.classList.add(luzEstado === 'ligada' ? 'ativo-on' : luzEstado === 'desligada' ? 'ativo-off' : 'selecionado');
-    btn.setAttribute('aria-pressed', String(selecionado));
-  });
-  const luzPillTexto = luzEstado === 'auto' ? 'autom\u00e1tico' : (luzEstado === 'ligada' ? 'ligada (manual)' : 'desligada (manual)');
-  const luzPillVariante = luzEstado === 'auto' ? 'pill-auto' : (luzEstado === 'ligada' ? 'pill-warn' : 'pill-auto');
-  atualizarPill('cmdLuzPill', luzPillTexto, luzPillVariante);
+  if (luzPendente && (luzPendente.valor === luzEstado || Date.now() > luzPendente.ate)) luzPendente = null;
+  renderizarControles(todosComandos);
+}
 
-  const ultimoAcesso = todosComandos.find(c => c.tipo === 'acesso');
-  if (ultimoAcesso) {
-    const desde = new Date((ultimoAcesso.dispositivo_timestamp || ultimoAcesso.criado_em).replace(' ', 'T'));
-    atualizarPill('cmdAcessoPill', 'liberada h\u00e1 ' + formatarDuracao(Date.now() - desde.getTime()), 'pill-ok');
-  } else {
-    atualizarPill('cmdAcessoPill', 'sem registro', 'pill-neutro');
-  }
+function renderizarControles(todosComandos) {
+  const container = document.getElementById('cmdControles');
+  if (!container) return;
+  const cards = [];
 
+  // --- Modo de cultivo
+  const modo = ultimoModoCmd;
+  const jm = janelaDoModo(modo);
+  const ultimoModo = todosComandos.find(c => c.tipo === 'modo_cultivo');
+  cards.push(
+    '<div class="rele-card fase largo">' +
+      '<div class="rele-card-topo">' +
+        '<div class="rele-icone"><svg data-lucide="' + (modo === 'floracao' ? 'flower-2' : 'sprout') + '"></svg></div>' +
+        '<span class="rele-num">Fase</span>' +
+      '</div>' +
+      '<div class="rele-nome">Modo de cultivo</div>' +
+      '<div class="rele-rodape">' +
+        '<div class="rele-estado"><strong>' + (modo === 'floracao' ? 'Floração' : 'Vegetação') + '</strong>' +
+          HORAS_LUZ_POR_MODO[modo] + 'h luz · ' + minParaHHMM(jm.inicioMin) + '–' + minParaHHMM(jm.fimMin) + '</div>' +
+        '<a class="rele-acao verde" href="#fotoperiodo" data-ir-aba="fotoperiodo" aria-label="Trocar de fase no Fotoperíodo" title="Trocar de fase no Fotoperíodo"><svg data-lucide="arrow-right"></svg></a>' +
+      '</div>' +
+    '</div>'
+  );
+
+  AUTOMACOES.forEach(a => cards.push(htmlCardAutomacao(a, todosComandos)));
+
+  container.innerHTML = cards.join('');
   renderizarBotoesReles(todosComandos);
 }
+
+/* ==================== Automações (aquecedor e umidade) ==================== */
+// A lógica roda no ESP32 (atualizarAutomacoes()); o painel só envia a faixa e liga/desliga.
+// Comando: tipo "automacao", alvo = chave, valor "ativa;min;max".
+const AUTOMACOES = [
+  {
+    chave: 'aquecedor', rele: 'Aquecedor', titulo: 'Aquecedor automático', icone: 'heater',
+    unidade: '°C', passo: 0.5, casas: 1, limite: [5, 40], padrao: { min: 20, max: 24 },
+    campoLeitura: 'temp_interna', rotuloMin: 'Liga abaixo de', rotuloMax: 'Desliga em',
+    descricao: (mn, mx) => 'Liga o aquecedor abaixo de ' + mn + ' e desliga ao chegar em ' + mx + '.',
+  },
+  {
+    chave: 'umidade', rele: 'Umidificador', titulo: 'Umidade do ar', icone: 'cloud-drizzle',
+    unidade: '%', passo: 1, casas: 0, limite: [20, 95], padrao: { min: 55, max: 65 },
+    campoLeitura: 'umid_interna', rotuloMin: 'Liga abaixo de', rotuloMax: 'Desliga em',
+    descricao: (mn, mx) => 'Liga o umidificador abaixo de ' + mn + ' e desliga ao chegar em ' + mx + '.',
+  },
+];
+let automacoesEsp = {};       // chave -> { valor, origem, quando } confirmado pelo ESP32
+const autoPendente = {};      // chave -> { ativa, min, max, ate } enviado e não confirmado
+const autoRascunho = {};      // chave -> { min, max } em edição
+
+function lerValorAutomacao(valor) {
+  const p = String(valor || '').split(';');
+  if (p.length !== 3) return null;
+  const min = Number(p[1]), max = Number(p[2]);
+  if (isNaN(min) || isNaN(max)) return null;
+  return { ativa: p[0] === '1', min, max };
+}
+function valorAutomacao(e) { return (e.ativa ? '1' : '0') + ';' + e.min.toFixed(1) + ';' + e.max.toFixed(1); }
+function fmtAuto(a, n) { return n.toFixed(a.casas).replace('.', ',') + (a.unidade === '%' ? '%' : ' ' + a.unidade); }
+
+function estadoAutomacao(a) {
+  const pend = autoPendente[a.chave];
+  if (pend) return { ...pend, pendente: true, registro: true };
+  const reg = automacoesEsp[a.chave];
+  const lido = reg ? lerValorAutomacao(reg.valor) : null;
+  if (lido) return { ...lido, pendente: false, registro: true, origem: reg.origem };
+  return { ativa: false, min: a.padrao.min, max: a.padrao.max, pendente: false, registro: false };
+}
+
+function resolverPendenciasAutomacao() {
+  AUTOMACOES.forEach(a => {
+    const pend = autoPendente[a.chave];
+    if (!pend) return;
+    const reg = automacoesEsp[a.chave];
+    if ((reg && reg.valor === valorAutomacao(pend)) || Date.now() > pend.ate) delete autoPendente[a.chave];
+  });
+}
+
+function automacaoDoRele(nomeRele) {
+  return AUTOMACOES.find(a => a.rele === nomeRele) || null;
+}
+
+function htmlCardAutomacao(a, todosComandos) {
+  const est = estadoAutomacao(a);
+  const rasc = autoRascunho[a.chave];
+  const min = rasc ? rasc.min : est.min;
+  const max = rasc ? rasc.max : est.max;
+  const alterado = !!rasc && (rasc.min !== est.min || rasc.max !== est.max);
+
+  const regRele = ultimoRegistroRele(todosComandos, a.rele);
+  const releLigado = !!regRele && regRele.valor === 'ligado';
+  const leitura = ultimaLeitura ? Number(ultimaLeitura[a.campoLeitura]) : NaN;
+  const nomeRele = (RELE_ROTULO[a.rele] || a.rele).toLowerCase();
+
+  let titulo, detalhe;
+  if (est.pendente) {
+    titulo = est.ativa ? 'Ativando…' : 'Desativando…';
+    detalhe = 'aguardando o ESP32';
+  } else {
+    titulo = est.ativa ? 'Ativa' : 'Desativada';
+    const partes = [];
+    if (!isNaN(leitura) && ultimaLeitura[a.campoLeitura] !== null) partes.push('agora ' + fmtAuto(a, leitura));
+    partes.push(nomeRele + (releLigado ? ' ligado' : ' desligado'));
+    if (!est.ativa && est.registro && String(est.origem || '').indexOf('pausa') === 0) partes.push('pausada por comando manual');
+    if (!est.registro) partes.push('sem registro');
+    detalhe = partes.join(' · ');
+  }
+
+  const passo = (campo, rotulo, valor) => {
+    const podeMenos = campo === 'min' ? valor - a.passo >= a.limite[0] : valor - a.passo >= min + 1;
+    const podeMais = campo === 'min' ? valor + a.passo <= max - 1 : valor + a.passo <= a.limite[1];
+    const mudou = rasc && rasc[campo] !== est[campo];
+    return '<div class="auto-passo' + (mudou ? ' alterado' : '') + '">' +
+      '<span class="auto-rotulo">' + rotulo + '</span>' +
+      '<div class="auto-ctrl">' +
+        '<button type="button" data-auto-passo="' + a.chave + '" data-campo="' + campo + '" data-delta="-1" aria-label="Diminuir ' + rotulo.toLowerCase() + '"' + (podeMenos ? '' : ' disabled') + '><svg data-lucide="minus"></svg></button>' +
+        '<strong>' + fmtAuto(a, valor) + '</strong>' +
+        '<button type="button" data-auto-passo="' + a.chave + '" data-campo="' + campo + '" data-delta="1" aria-label="Aumentar ' + rotulo.toLowerCase() + '"' + (podeMais ? '' : ' disabled') + '><svg data-lucide="plus"></svg></button>' +
+      '</div>' +
+    '</div>';
+  };
+  const faixa = passo('min', a.rotuloMin, min) + passo('max', a.rotuloMax, max);
+
+  return '<div class="rele-card largo auto-card' + (est.ativa ? ' liberado' : '') + (est.pendente ? ' pendente' : '') + '">' +
+    '<div class="rele-card-topo">' +
+      '<div class="rele-icone' + (releLigado ? ' aceso' : '') + '"><svg data-lucide="' + a.icone + '"></svg></div>' +
+      '<span class="rele-num">Relé ' + (RELE_NUMERO[a.rele] ?? '?') + '</span>' +
+    '</div>' +
+    '<div class="rele-nome">' + a.titulo + '</div>' +
+    '<div class="auto-desc">' + a.descricao(fmtAuto(a, min), fmtAuto(a, max)) + '</div>' +
+    '<div class="auto-faixa">' + faixa + '</div>' +
+    (alterado
+      ? '<div class="cmd-confirmacao"><span>Faixa alterada' + (est.ativa ? '' : ' (a automação será ativada)') + '</span>' +
+        '<button type="button" class="cmd-confirmar-nao" data-auto-cancelar="' + a.chave + '">Cancelar</button>' +
+        '<button type="button" class="cmd-confirmar-sim" data-auto-salvar="' + a.chave + '">Salvar</button></div>'
+      : '') +
+    '<div class="rele-rodape">' +
+      '<div class="rele-estado"><strong>' + titulo + '</strong>' + escapeHtml(detalhe) + '</div>' +
+      '<button type="button" class="switch" role="switch" aria-checked="' + est.ativa + '" aria-label="' + escapeHtml(a.titulo) + '" data-auto-switch="' + a.chave + '"' + (est.pendente ? ' disabled' : '') + '></button>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ---------- Automações no relógio de eventos ---------- */
+function ehEventoAutomacao(c) {
+  return c.tipo === 'automacao' || (c.tipo === 'rele' && c.origem === 'automacao');
+}
+function msEvento(c) { return new Date(String(timestampEvento(c) || '').replace(' ', 'T')).getTime(); }
+function dataEvento(c) {
+  const ts = String(timestampEvento(c) || '');
+  return ts.length >= 10 ? ts.substring(8, 10) + '/' + ts.substring(5, 7) + '/' + ts.substring(0, 4) + ' às ' + ts.substring(11, 19) : 'data desconhecida';
+}
+function hhmmEvento(c) { return String(timestampEvento(c) || '').substring(11, 16) || '--:--'; }
+function rotuloOrigem(origem) {
+  return ({ automacao: 'automação', pausa_painel: 'comando manual no painel', pausa_oled: 'botão do OLED' })[origem] || origem || '';
+}
+function automacaoPorChave(chave) { return AUTOMACOES.find(a => a.chave === chave) || null; }
+function nomeDaAutomacao(a) { return a.chave === 'aquecedor' ? 'do aquecedor' : 'da umidade'; }
+
+// Faixa em vigor num instante: último registro "automacao" até ali (ou o estado atual do ESP32).
+function faixaAutomacaoEm(a, ms) {
+  const reg = ultimoTodosComandos.find(c => c.tipo === 'automacao' && c.alvo === a.chave && msEvento(c) <= ms);
+  const lido = reg ? lerValorAutomacao(reg.valor) : (automacoesEsp[a.chave] ? lerValorAutomacao(automacoesEsp[a.chave].valor) : null);
+  return lido || { ativa: false, min: a.padrao.min, max: a.padrao.max };
+}
+// Leitura mais próxima (até 5 min antes ou depois) do instante.
+function leituraEm(campo, ms) {
+  let melhor = null, dist = Infinity;
+  leituras24h.forEach(l => {
+    const t = new Date(String(l.criado_em || l.dispositivo_timestamp || '').replace(' ', 'T')).getTime();
+    const v = l[campo];
+    if (isNaN(t) || v === null || v === undefined) return;
+    const d = Math.abs(t - ms);
+    if (d < dist) { dist = d; melhor = Number(v); }
+  });
+  return dist <= 5 * 60 * 1000 ? melhor : null;
+}
+
+function descricaoAutomacao(c) {
+  if (c.tipo === 'rele') {
+    return (RELE_ROTULO[c.alvo] || c.alvo) + (c.valor === 'ligado' ? ' ligado' : ' desligado') + ' pela automação';
+  }
+  const a = automacaoPorChave(c.alvo);
+  const v = lerValorAutomacao(c.valor);
+  if (!a || !v) return 'Automação: ' + c.alvo + ' (' + c.valor + ')';
+  const nome = nomeDaAutomacao(a);
+  const faixa = fmtAuto(a, v.min) + '–' + fmtAuto(a, v.max);
+  if (String(c.origem || '').indexOf('pausa') === 0) return 'Automação ' + nome + ' pausada (comando manual)';
+  if (!v.ativa) return 'Automação ' + nome + ' desativada';
+  const anterior = ultimoTodosComandos.find(x => x.tipo === 'automacao' && x.alvo === c.alvo && msEvento(x) < msEvento(c));
+  const ant = anterior ? lerValorAutomacao(anterior.valor) : null;
+  if (ant && ant.ativa && (ant.min !== v.min || ant.max !== v.max)) return 'Faixa ' + nome + ' alterada para ' + faixa;
+  return 'Automação ' + nome + ' ativada (' + faixa + ')';
+}
+
+// Linhas extras do detalhe: leitura, regra aplicada e quanto tempo ficou ligado.
+function detalheAutomacao(c) {
+  const linhas = [];
+  const ms = msEvento(c);
+  if (c.tipo === 'automacao') {
+    const a = automacaoPorChave(c.alvo);
+    const v = lerValorAutomacao(c.valor);
+    if (!a || !v) return linhas;
+    linhas.push(['Regra', a.rotuloMin.toLowerCase() + ' ' + fmtAuto(a, v.min) + ' · ' + a.rotuloMax.toLowerCase() + ' ' + fmtAuto(a, v.max)]);
+    linhas.push(['Relé', (RELE_ROTULO[a.rele] || a.rele) + ' (relé ' + (RELE_NUMERO[a.rele] ?? '?') + ')']);
+    const leitura = leituraEm(a.campoLeitura, ms);
+    if (leitura !== null) linhas.push([a.chave === 'aquecedor' ? 'Temperatura' : 'Umidade', fmtAuto(a, leitura) + ' no momento']);
+    return linhas;
+  }
+  const a = automacaoDoRele(c.alvo);
+  if (!a) return linhas;
+  const ligou = c.valor === 'ligado';
+  const faixa = faixaAutomacaoEm(a, ms);
+  const leitura = leituraEm(a.campoLeitura, ms);
+  const grandeza = a.chave === 'aquecedor' ? 'Temperatura' : 'Umidade';
+  if (leitura !== null) linhas.push([grandeza, fmtAuto(a, leitura)]);
+  linhas.push(['Motivo', ligou ? 'abaixo de ' + fmtAuto(a, faixa.min) + ' (liga)' : 'chegou em ' + fmtAuto(a, faixa.max) + ' (desliga)']);
+  // Próximo (ou anterior) registro do mesmo relé, de qualquer origem.
+  const doRele = ultimoTodosComandos.filter(x => x.tipo === 'rele' && x.alvo === c.alvo);
+  if (ligou) {
+    const seguinte = doRele.filter(x => msEvento(x) > ms).pop();
+    if (seguinte) linhas.push(['Ficou ligado', formatarDuracao(msEvento(seguinte) - ms) + ' (até ' + hhmmEvento(seguinte) + ')']);
+    else linhas.push(['Ficou ligado', 'continua ligado (' + formatarDuracao(Date.now() - ms) + ')']);
+  } else {
+    const anterior = doRele.find(x => msEvento(x) < ms && x.valor === 'ligado');
+    if (anterior) linhas.push(['Estava ligado', formatarDuracao(ms - msEvento(anterior)) + ' (desde ' + hhmmEvento(anterior) + ')']);
+  }
+  return linhas;
+}
+
+
+async function enviarAutomacao(a, novo) {
+  autoPendente[a.chave] = { ativa: novo.ativa, min: novo.min, max: novo.max, ate: Date.now() + 90 * 1000 };
+  delete autoRascunho[a.chave];
+  renderizarControles(ultimoTodosComandos);
+  const ok = await enviarComando('automacao', a.chave, valorAutomacao(novo), null);
+  if (!ok) { delete autoPendente[a.chave]; renderizarControles(ultimoTodosComandos); return; }
+  [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
+}
+
+document.addEventListener('click', ev => {
+  const bPasso = ev.target.closest('[data-auto-passo]');
+  if (bPasso && !bPasso.disabled) {
+    const a = AUTOMACOES.find(x => x.chave === bPasso.dataset.autoPasso);
+    const est = estadoAutomacao(a);
+    const r = autoRascunho[a.chave] || { min: est.min, max: est.max };
+    const campo = bPasso.dataset.campo;
+    r[campo] = Math.round((r[campo] + Number(bPasso.dataset.delta) * a.passo) * 10) / 10;
+    autoRascunho[a.chave] = r;
+    if (r.min === est.min && r.max === est.max) delete autoRascunho[a.chave];
+    renderizarControles(ultimoTodosComandos);
+    return;
+  }
+  const bCancelar = ev.target.closest('[data-auto-cancelar]');
+  if (bCancelar) { delete autoRascunho[bCancelar.dataset.autoCancelar]; renderizarControles(ultimoTodosComandos); return; }
+
+  const bSalvar = ev.target.closest('[data-auto-salvar]');
+  if (bSalvar) {
+    const a = AUTOMACOES.find(x => x.chave === bSalvar.dataset.autoSalvar);
+    const r = autoRascunho[a.chave];
+    if (r) enviarAutomacao(a, { ativa: true, min: r.min, max: r.max });
+    return;
+  }
+  const sw = ev.target.closest('.switch[data-auto-switch]');
+  if (sw && !sw.disabled) {
+    const a = AUTOMACOES.find(x => x.chave === sw.dataset.autoSwitch);
+    const est = estadoAutomacao(a);
+    const r = autoRascunho[a.chave];
+    enviarAutomacao(a, { ativa: !est.ativa, min: r ? r.min : est.min, max: r ? r.max : est.max });
+  }
+});
+
+// Card da luz (relé 0), exibido no grupo Relés.
+function htmlCardLuz(todosComandos) {
+  const cards = [];
+  const ultimoLuz = todosComandos.find(c => c.tipo === 'rele' && c.alvo === 'Luz');
+  const modoLuz = luzPendente ? luzPendente.valor : ultimoLuzEstado;
+  let luzLigada;
+  if (modoLuz === 'auto') luzLigada = estadoEDuracaoLuz(modoAtualParaLuz).ligada;
+  else luzLigada = modoLuz === 'ligada';
+  let luzTitulo, luzDetalhe;
+  if (luzPendente) {
+    luzTitulo = luzPendente.valor === 'auto' ? 'Voltando ao timer…' : (luzLigada ? 'Ligando…' : 'Desligando…');
+    luzDetalhe = 'aguardando o ESP32';
+  } else {
+    luzTitulo = luzLigada ? 'Ligada' : 'Desligada';
+    const d = duracaoDesde(ultimoLuz);
+    luzDetalhe = (modoLuz === 'auto' ? 'automático' : 'manual') + (d ? ' · ' + d : '');
+  }
+  const auto = modoLuz === 'auto';
+  cards.push(
+    '<div class="rele-card' + (luzLigada ? ' on' : '') + (luzPendente ? ' pendente' : '') + '">' +
+      '<div class="rele-card-topo">' +
+        '<div class="rele-icone"><svg data-lucide="' + (luzLigada ? 'lightbulb' : 'lightbulb-off') + '"></svg></div>' +
+        '<button type="button" class="rele-chip' + (auto ? ' ativo' : '') + '" data-luz-auto aria-pressed="' + auto + '" title="' + (auto ? 'Seguindo o timer' : 'Voltar ao timer automático') + '"' + (luzPendente ? ' disabled' : '') + '>Auto</button>' +
+      '</div>' +
+      '<div class="rele-nome">Luz</div>' +
+      '<div class="rele-rodape">' +
+        '<div class="rele-estado"><strong>' + luzTitulo + '</strong>' + escapeHtml(luzDetalhe) + '</div>' +
+        '<button type="button" class="switch" role="switch" aria-checked="' + luzLigada + '" aria-label="Luz (manual)" data-luz' + (luzPendente ? ' disabled' : '') + '></button>' +
+      '</div>' +
+    '</div>'
+  );
+
+  return cards.join('');
+}
+
+// Card da trava da porta (relé 6), exibido no grupo Relés.
+function htmlCardAcesso(todosComandos) {
+  const cards = [];
+  const ultimoAcesso = todosComandos.find(c => c.tipo === 'acesso');
+  let acTitulo, acDetalhe;
+  if (acessoEnviando) { acTitulo = 'Liberando…'; acDetalhe = 'aguardando o ESP32'; }
+  else if (acessoConfirmando) { acTitulo = 'Confirmar?'; acDetalhe = 'toque de novo para abrir'; }
+  else if (ultimoAcesso) { acTitulo = 'Liberado'; acDetalhe = duracaoDesde(ultimoAcesso); }
+  else { acTitulo = 'Trancado'; acDetalhe = 'sem registro'; }
+  const recente = ultimoAcesso && (Date.now() - new Date(String(timestampEvento(ultimoAcesso)).replace(' ', 'T')).getTime()) < 2 * 60 * 1000;
+  const acClasse = acessoConfirmando ? ' confirmando' : (acessoEnviando ? ' pendente' : (recente ? ' liberado' : ''));
+  cards.push(
+    '<div class="rele-card' + acClasse + '">' +
+      '<div class="rele-card-topo">' +
+        '<div class="rele-icone"><svg data-lucide="' + (recente || acessoEnviando ? 'lock-open' : 'lock') + '"></svg></div>' +
+        '<span class="rele-num">Relé 6</span>' +
+      '</div>' +
+      '<div class="rele-nome">Acesso</div>' +
+      '<div class="rele-rodape">' +
+        '<div class="rele-estado"><strong>' + acTitulo + '</strong>' + escapeHtml(acDetalhe) + '</div>' +
+        '<button type="button" class="rele-acao' + (acessoConfirmando ? ' perigo' : ' verde') + '" data-acesso aria-label="' + (acessoConfirmando ? 'Confirmar liberação do acesso' : 'Liberar acesso') + '"' + (acessoEnviando ? ' disabled' : '') + '>' +
+          (acessoEnviando ? '<span class="cmd-btn-spinner"></span>' : '<svg data-lucide="' + (acessoConfirmando ? 'check' : 'lock-open') + '"></svg>') +
+        '</button>' +
+      '</div>' +
+    '</div>'
+  );
+  return cards.join('');
+}
+
+// Luz: interruptor = manual liga/desliga; chip "Auto" = volta ao timer.
+async function enviarLuz(valor) {
+  luzPendente = { valor, ate: Date.now() + 90 * 1000 };
+  renderizarControles(ultimoTodosComandos);
+  const ok = await enviarComando('luz_manual', 'luz_manual', valor, null);
+  if (!ok) { luzPendente = null; renderizarControles(ultimoTodosComandos); return; }
+  [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
+}
+
+document.addEventListener('click', async ev => {
+  const swLuz = ev.target.closest('.switch[data-luz]');
+  if (swLuz && !swLuz.disabled) { enviarLuz(swLuz.getAttribute('aria-checked') === 'true' ? 'desligada' : 'ligada'); return; }
+
+  const chip = ev.target.closest('.rele-chip[data-luz-auto]');
+  if (chip && !chip.disabled && !chip.classList.contains('ativo')) { enviarLuz('auto'); return; }
+
+  const ac = ev.target.closest('.rele-acao[data-acesso]');
+  if (ac && !ac.disabled) {
+    if (!acessoConfirmando) {
+      acessoConfirmando = true;
+      renderizarControles(ultimoTodosComandos);
+      clearTimeout(acessoConfirmTimeout);
+      acessoConfirmTimeout = setTimeout(() => { acessoConfirmando = false; renderizarControles(ultimoTodosComandos); }, 5000);
+      return;
+    }
+    clearTimeout(acessoConfirmTimeout);
+    acessoConfirmando = false;
+    acessoEnviando = true;
+    renderizarControles(ultimoTodosComandos);
+    await enviarComando('acesso', 'acesso', 'liberar', null);
+    acessoEnviando = false;
+    renderizarControles(ultimoTodosComandos);
+  }
+});
 
 let cmdToastTimeout = null;
 function mostrarToast(mensagem, tipo) {
@@ -1871,36 +2527,18 @@ async function enviarComando(tipo, alvo, valor, botao) {
   }
 }
 
-let cmdAcessoTimeout = null;
-function pedirConfirmacaoAcesso() {
-  const area = document.getElementById('cmdAcessoArea');
-  const botaoOriginal = document.getElementById('cmdBtnAcesso');
-  if (!area || !botaoOriginal) return;
-  botaoOriginal.style.display = 'none';
-  botaoOriginal.classList.add('pendente-confirmacao');
-  const confirmacao = document.createElement('div');
-  confirmacao.className = 'cmd-confirmacao';
-  confirmacao.innerHTML = '<span>Liberar o acesso (abrir a trava) agora?</span><button type="button" class="cmd-confirmar-nao">N\u00e3o</button><button type="button" class="cmd-confirmar-sim">Sim, liberar</button>';
-  area.appendChild(confirmacao);
-  const limpar = () => { clearTimeout(cmdAcessoTimeout); confirmacao.remove(); botaoOriginal.style.display = ''; botaoOriginal.classList.remove('pendente-confirmacao'); };
-  confirmacao.querySelector('.cmd-confirmar-nao').addEventListener('click', limpar);
-  confirmacao.querySelector('.cmd-confirmar-sim').addEventListener('click', () => { limpar(); enviarComando('acesso', 'acesso', 'liberar', botaoOriginal); });
-  cmdAcessoTimeout = setTimeout(limpar, 5000);
-}
-
 document.addEventListener('click', ev => {
   const botao = ev.target.closest('.cmd-btn');
   if (!botao) return;
   const { tipo, alvo, valor } = botao.dataset;
   if (!tipo || !alvo || !valor) return;
-  if (tipo === 'acesso') { pedirConfirmacaoAcesso(); return; }
   enviarComando(tipo, alvo, valor, botao);
 });
 
 /* ==================== Relés (aba Comandos) ==================== */
 // Número do relé na placa (índice em reles[] do firmware).
-const RELE_NUMERO = { 'Desumidificador': 1, 'Ventilador': 2, 'Entrada de Ar 1': 4, 'Entrada de Ar 2': 5, 'Saida de Ar': 7 };
-const RELE_ROTULO = { 'Saida de Ar': 'Saída de Ar' };
+const RELE_NUMERO = { 'Umidificador': 1, 'Ventilador': 2, 'Irrigacao': 3, 'Entrada de Ar': 4, 'Aquecedor': 5, 'Saida de Ar': 7 };
+const RELE_ROTULO = { 'Saida de Ar': 'Saída de Ar', 'Irrigacao': 'Irrigação' };
 // Comandos enviados e ainda não confirmados: nome -> { valor, ate }.
 const relesPendentes = {};
 let ultimoTodosComandos = [];
@@ -1912,9 +2550,11 @@ function ultimoRegistroRele(todosComandos, nomeRele) {
 function renderizarBotoesReles(todosComandos) {
   const container = document.getElementById('cmdReles');
   if (!container) return;
-  container.innerHTML = '';
+  container.innerHTML = htmlCardLuz(todosComandos);
   const agora = Date.now();
   RELES_CONTROLAVEIS.forEach(nome => {
+    // Trava (relé 6) entra na ordem da placa, antes da Saída de Ar (relé 7).
+    if (nome === 'Saida de Ar') container.insertAdjacentHTML('beforeend', htmlCardAcesso(todosComandos));
     const ultimo = ultimoRegistroRele(todosComandos, nome);
     const estadoReal = ultimo ? ultimo.valor : null;
     const pend = relesPendentes[nome];
@@ -1935,6 +2575,8 @@ function renderizarBotoesReles(todosComandos) {
       const desde = new Date(String(timestampEvento(ultimo)).replace(' ', 'T')).getTime();
       const dur = isNaN(desde) ? '' : formatarDuracao(agora - desde);
       detalhe = !dur ? '' : (dur === 'agora mesmo' ? dur : 'há ' + dur);
+      const auto = automacaoDoRele(nome);
+      if (auto && estadoAutomacao(auto).ativa) detalhe = 'automático' + (detalhe ? ' · ' + detalhe : '');
     }
 
     const icone = RELE_ICONE[nome] || 'plug';
@@ -1963,17 +2605,25 @@ document.addEventListener('click', async ev => {
   const novoValor = sw.getAttribute('aria-checked') === 'true' ? 'desligado' : 'ligado';
   relesPendentes[nome] = { valor: novoValor, ate: Date.now() + 90 * 1000 };
   renderizarBotoesReles(ultimoTodosComandos);
+  // Comando manual pausa a automação desse relé (o ESP32 faz o mesmo ao receber).
+  const auto = automacaoDoRele(nome);
+  const estAuto = auto ? estadoAutomacao(auto) : null;
   const ok = await enviarComando('rele', nome, novoValor, null);
   if (!ok) {
     delete relesPendentes[nome];
     renderizarBotoesReles(ultimoTodosComandos);
     return;
   }
+  if (estAuto && estAuto.ativa) {
+    autoPendente[auto.chave] = { ativa: false, min: estAuto.min, max: estAuto.max, ate: Date.now() + 90 * 1000 };
+    renderizarControles(ultimoTodosComandos);
+    mostrarToast('\u2713 comando enviado \u2014 automa\u00e7\u00e3o ' + (auto.chave === 'aquecedor' ? 'do aquecedor' : 'da umidade') + ' pausada', 'ok');
+  }
   // Reconsulta algumas vezes até o ESP32 confirmar.
   [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
 });
 
-/* ==================== Automação (timers de luz) ==================== */
+/* ==================== Fotoperíodo (timers de luz) ==================== */
 // Horário em edição por modo (minutos), ou null quando não há rascunho.
 const rascunhoTimer = { vegetativo: null, floracao: null };
 let ultimoLuzEstado = 'auto';
@@ -2029,11 +2679,11 @@ function secaoTrocaFase(modo) {
   return html;
 }
 
-async function postAutomacao(corpo, botao) {
+async function postFotoperiodo(corpo, botao) {
   const rotulo = botao ? botao.innerHTML : '';
   if (botao) { botao.disabled = true; botao.innerHTML = '<span class="cmd-btn-spinner"></span>enviando'; }
   try {
-    const r = await fetch('automacao.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
+    const r = await fetch('fotoperiodo.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) });
     if (r.status === 401) { window.location.href = 'login.php'; return null; }
     const d = await r.json();
     if (!d.ok) { mostrarToast(d.detalhe || ('erro: ' + (d.erro || 'desconhecido')), 'erro'); return null; }
@@ -2113,7 +2763,7 @@ function atualizarPreviewTimer(modo) {
   card.querySelector('[data-acao="padrao"]').style.display = (editado === hhmmParaMin(INICIO_PADRAO_POR_MODO[modo])) ? 'none' : '';
 }
 
-function atualizarStatusAutomacao() {
+function atualizarStatusFotoperiodo() {
   const modo = ultimoModoAtual;
   const faseEl = document.getElementById('autoFaseAtiva');
   if (!faseEl) return;
@@ -2143,10 +2793,10 @@ function atualizarStatusAutomacao() {
   }
 }
 
-function renderizarAutomacao() {
+function renderizarFotoperiodo() {
   renderizarTimerCard('vegetativo');
   renderizarTimerCard('floracao');
-  atualizarStatusAutomacao();
+  atualizarStatusFotoperiodo();
 }
 
 const autoGridEl = document.querySelector('.auto-grid');
@@ -2182,11 +2832,11 @@ if (autoGridEl) {
         return;
       }
       acao.classList.remove('confirmar');
-      const d = await postAutomacao({ acao: 'ativar', fase: modo }, acao);
+      const d = await postFotoperiodo({ acao: 'ativar', fase: modo }, acao);
       if (d) {
         mostrarToast('\u2713 ' + NOME_MODO[modo] + ' ativada \u2014 o ESP32 aplica em alguns segundos', 'ok');
         ultimoModoAtual = modo;
-        renderizarAutomacao();
+        renderizarFotoperiodo();
         atualizarSeloFase();
         [2000, 8000, 20000].forEach(ms => setTimeout(() => { atualizarTudo().catch(() => {}); }, ms));
       }
@@ -2195,13 +2845,13 @@ if (autoGridEl) {
     if (acao.dataset.acao === 'programar') {
       const data = card.querySelector('[data-campo="data-troca"]').value;
       if (!data) { mostrarToast('escolha uma data', 'erro'); return; }
-      const d = await postAutomacao({ acao: 'programar', fase: modo, data }, acao);
-      if (d) { mostrarToast('\u2713 troca programada', 'ok'); renderizarAutomacao(); carregarRodaEventos().catch(() => {}); }
+      const d = await postFotoperiodo({ acao: 'programar', fase: modo, data }, acao);
+      if (d) { mostrarToast('\u2713 troca programada', 'ok'); renderizarFotoperiodo(); carregarRodaEventos().catch(() => {}); }
       return;
     }
     if (acao.dataset.acao === 'cancelar-troca') {
-      const d = await postAutomacao({ acao: 'cancelar', id: Number(acao.dataset.id) }, acao);
-      if (d) { mostrarToast('troca programada cancelada', 'ok'); renderizarAutomacao(); carregarRodaEventos().catch(() => {}); }
+      const d = await postFotoperiodo({ acao: 'cancelar', id: Number(acao.dataset.id) }, acao);
+      if (d) { mostrarToast('troca programada cancelada', 'ok'); renderizarFotoperiodo(); carregarRodaEventos().catch(() => {}); }
       return;
     }
     if (acao.dataset.acao === 'descartar') { rascunhoTimer[modo] = null; atualizarPreviewTimer(modo); return; }
@@ -2215,9 +2865,9 @@ if (autoGridEl) {
         CONFIG['fotoperiodo_' + modo + '_inicio'] = hhmm;
         rascunhoTimer[modo] = null;
         atualizarPillsModo();
-        renderizarAutomacao();
+        renderizarFotoperiodo();
         renderizarRoda();
-        [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarConfiguracoes().then(() => { if (abaAtual === 'automacao') renderizarAutomacao(); }).catch(() => {}); }, ms));
+        [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarConfiguracoes().then(() => { if (abaAtual === 'fotoperiodo') renderizarFotoperiodo(); }).catch(() => {}); }, ms));
       }
     }
   });
@@ -2294,6 +2944,7 @@ let intervaloAtualizacaoSeg = null;
 // Valores antigos fora das opções atuais (ex.: atualização de 30 s) viram o padrão.
 function normalizarConfig(c) {
   if (!INTERVALOS_VALIDOS.includes(String(c.intervalo_atualizacao_seg))) c.intervalo_atualizacao_seg = '60';
+  if (c.pagina_inicial === 'automacao') c.pagina_inicial = 'fotoperiodo';
   return c;
 }
 async function carregarConfiguracoes() {
@@ -2305,6 +2956,7 @@ async function carregarConfiguracoes() {
   atualizarSeloFase();
   renderizarLuzManual();
   aplicarConfiguracoes();
+  if (abaAtual === 'relogio') renderizarRoda(); // faixa de luz segue o fotoperíodo salvo
 }
 
 function aplicarConfiguracoes() {
@@ -2331,7 +2983,7 @@ function aplicarConfiguracoes() {
     intervaloAtualizacaoSeg = seg;
     armarAtualizacao();
   }
-  if (abaAtual === 'automacao') renderizarAutomacao();
+  if (abaAtual === 'fotoperiodo') renderizarFotoperiodo();
 }
 
 // Legenda dos cards: faixa ok, alerta, ambiente externo e solo.
@@ -2701,7 +3353,8 @@ async function atualizarTudo() {
   if (abaAtual === 'dispositivo') { try { await carregarDispositivo(); } catch (e) { erros.push('dispositivo: ' + e.message); } }
   try { await carregarRodaEventos(); } catch (e) {
     erros.push('roda de eventos: ' + e.message);
-    document.getElementById('rodaStatus').innerHTML = '<div class="roda-status-item">erro ao carregar eventos (' + escapeHtml(e.message) + ')</div>';
+    const listaRoda = document.getElementById('rrLista');
+    if (listaRoda) listaRoda.innerHTML = '<div class="rr-vazio">erro ao carregar eventos (' + escapeHtml(e.message) + ')</div>';
   }
   ultimaAtualizacaoEm = Date.now();
   ultimoErroAtualizacao = erros.join(' | ');
@@ -2991,7 +3644,7 @@ document.getElementById('grupoNotif').addEventListener('click', async ev => {
   try { await carregarConfiguracoes(); } catch (e) { aplicarConfiguracoes(); }
   periodoAtual = ['24h', '7d', '30d'].includes(CONFIG.periodo_padrao_historico) ? CONFIG.periodo_padrao_historico : '24h';
   marcarPeriodo(periodoAtual);
-  const hash = location.hash.replace('#', '');
+  const hash = location.hash.replace('#', '').replace(/^automacao$/, 'fotoperiodo');
   mudarAba(ABAS_VALIDAS.includes(hash) ? hash : CONFIG.pagina_inicial);
   carregarUsuarios().catch(e => { console.warn('usuarios:', e.message); });
   carregarNotificacoes().catch(e => { console.warn('notificacoes:', e.message); });
@@ -2999,4 +3652,4 @@ document.getElementById('grupoNotif').addEventListener('click', async ev => {
 })();
 </script>
 </body>
-</html>
+</html>

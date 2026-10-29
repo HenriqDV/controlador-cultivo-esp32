@@ -1,6 +1,6 @@
 # 🌿 Smart Demetra — automação de cultivo indoor (ESP32-S3)
 
-Controla a **luz**, a **ventilação**, a **desumidificação** e a **trava da porta** de uma estufa. Mede **temperatura, umidade, solo e VPD**, avisa pelo **Telegram** quando algo sai da faixa e mostra tudo num **painel web** que funciona no computador e no celular.
+Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**, a **irrigação** e a **trava da porta** de uma estufa. Mede **temperatura, umidade, solo e VPD**, avisa pelo **Telegram** quando algo sai da faixa e mostra tudo num **painel web** que funciona no computador e no celular.
 
 ![Painel do Smart Demetra no computador e no celular](docs/img/capa.png)
 
@@ -14,7 +14,7 @@ Controla a **luz**, a **ventilação**, a **desumidificação** e a **trava da p
 - 🌱 **Ciclo de cultivo** — Conta o dia do ciclo e troca de fase na hora ou numa data programada.
 - 🌡️ **Monitoramento** — Temperatura e umidade dentro e fora da estufa, umidade do solo e VPD avaliado pela fase ativa, gravados a cada minuto.
 - 🔔 **Avisos no Telegram** — Leitura fora da faixa, dispositivo offline, timer não confirmado e resumo diário às 08:00.
-- 🌀 **8 relés** — Luz, desumidificador, ventilador, 2 entradas de ar, saída de ar e trava da porta.
+- 🌀 **8 relés** — Luz, umidificador, ventilador, irrigação, entrada de ar, aquecedor, saída de ar e trava da porta.
 - 🔐 **Acesso seguro** — Várias contas com código de convite, limite de tentativas e token próprio para o ESP32.
 - 📶 **Configuração sem cabo** — Portal Wi-Fi **SmartDemetra-Setup** para escolher a rede e vincular o aparelho ao painel.
 - 🖥️ **Uso local** — Display OLED e botões no aparelho, que continuam funcionando sem internet.
@@ -44,21 +44,21 @@ Se o ESP32 parar de enviar, aparece o aviso de offline com a hora da última lei
 ![Página Início](docs/img/painel-inicio.png)
 
 ### Relógio de eventos
-As últimas 24 horas num relógio: janela de luz da fase, porta, relés, alertas, avisos do Telegram e trocas de fase. Cada tipo de evento tem um filtro na legenda.
+As últimas 24 horas num relógio. A faixa de luz segue o fotoperíodo da fase ativa (18/6 na vegetação, 12/12 na floração). O aquecedor e o umidificador têm anéis próprios: cada trecho pintado é um período ligado, com a leitura do sensor e a regra da automação no detalhe. Porta, avisos, trocas de fase e ajustes das automações aparecem como pontos. No topo, um resumo das 24h que também filtra; embaixo, a lista separada em Hoje e Ontem.
 
 ![Página Relógio de eventos](docs/img/painel-relogio.png)
 
-### Automação
+### Fotoperíodo
 É a central dos timers e da fase:
 
 - **Quatro cards de resumo:** fase ativa com o dia do ciclo, luz agora, próxima mudança e **Timer no ESP32**. Este último mostra se o timer está confirmado, aguardando ou divergente.
 - **Card de cada fase:** você escolhe a hora em que a luz acende, e a hora de apagar é calculada mantendo 18/6 ou 12/12.
 - **Fase inativa:** tem a seção **Troca de fase**, para ativar agora ou programar uma data. A troca acontece no primeiro horário de luz desse dia.
 
-![Página Automação](docs/img/painel-automacao.png)
+![Página Fotoperíodo](docs/img/painel-fotoperiodo.png)
 
 ### Comandos
-Luz automática ou manual, liberação da porta e interruptores dos relés. Cada interruptor mostra o estado real e há quanto tempo está assim. A troca de fase fica na Automação.
+Modo de cultivo, automações do aquecedor e do umidificador, luz automática ou manual, liberação da porta e interruptores dos relés. Cada interruptor mostra o estado real e há quanto tempo está assim. A troca de fase fica no Fotoperíodo.
 
 ![Página Comandos](docs/img/painel-comandos.png)
 
@@ -197,7 +197,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 │   ├── usuarios.php             # senha e gestão de contas
 │   ├── configuracoes.php        # preferências, faixas e status do timer
 │   ├── status.php               # online/offline e dados do ESP32
-│   ├── automacao.php            # troca de fase (agora ou programada)
+│   ├── fotoperiodo.php          # troca de fase (agora ou programada)
 │   ├── dispositivo.php          # token do hardware, vinculação e atividade
 │   ├── vincular.php             # ESP32 troca o código de vinculação pelo token
 │   ├── notificacoes.php         # Telegram: conexão, teste e interruptores
@@ -226,7 +226,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 | Arquivo | Acesso | Função |
 |---|---|---|
 | `index.php`, `configuracoes.php`, `usuarios.php`, `enviar_comando.php` | Sessão (login) | Painel, preferências, contas e envio de comandos |
-| `status.php`, `automacao.php`, `notificacoes.php`, `exportar_csv.php` | Sessão | Status, troca de fase, Telegram e CSV |
+| `status.php`, `fotoperiodo.php`, `notificacoes.php`, `exportar_csv.php` | Sessão | Status, troca de fase, Telegram e CSV |
 | `dispositivo.php` | Sessão (alterações só para admin) | Token do hardware, vinculação e atividade recente |
 | `dados.php`, `comandos.php` | Público (leitura) | Leituras para os gráficos e eventos |
 | `registrar_leitura.php`, `registrar_comando.php`, `comandos_pendentes.php` | `X-API-Key` (token `sd_hw_` ou `API_KEY`) | Leituras, eventos e fila do ESP32 |

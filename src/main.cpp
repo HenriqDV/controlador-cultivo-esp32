@@ -15,10 +15,11 @@
 //    Solo (ADC) 6 | DHT externo 16 | DHT interno 15 (só simulação)
 //    Buzzer 17 | NeoPixel 4 (Wokwi) / 48 (placa) | Botão OLED 5 | Botão trava 19
 //    Relés {42,41,40,39,38,37,36,35}:
-//      0 Luz  1 Desumidificador  2 Ventilador  3 (vazio)
-//      4 Entrada de Ar 1  5 Entrada de Ar 2  6 Trava  7 Saída de Ar
+//      0 Luz  1 Umidificador  2 Ventilador  3 Irrigacao (pino 39)
+//      4 Entrada de Ar (pino 38)  5 Aquecedor (pino 37)  6 Trava  7 Saída de Ar
 //
 //  NVRAM do RTC: bytes 0-7 relés/modo/override da luz, 8-12 horários de luz.
+//  NVS "automacao": faixas do aquecedor (temperatura) e da umidade (umidificador).
 //
 //  CALIBRAR NO HARDWARE: SOLO_ADC_SECO/SOLO_ADC_UMIDO, RELE_ATIVO_EM_BAIXO.
 // =============================================================================
@@ -32,7 +33,7 @@
 #define WOKWI_SIMULATION 0
 
 // Versão enviada ao painel (tela Dispositivo). Atualize a cada nova gravação.
-#define FIRMWARE_VERSAO "2.4.0"
+#define FIRMWARE_VERSAO "2.5.0"
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
 #endif
@@ -67,7 +68,7 @@ unsigned long ultimaTentativaVinculoEm = 0;
 const char* HISTORICO_ARQUIVO = "/historico.csv";
 const char* HISTORICO_CABECALHO =
   "timestamp,temp_interna,umid_interna,temp_externa,umid_externa,solo_percentual,"
-  "luz,modo_cultivo,ventilador,entrada_ar_1,entrada_ar_2,saida_ar,acesso";
+  "luz,modo_cultivo,ventilador,entrada_ar,aquecedor,saida_ar,acesso";
 const unsigned long INTERVALO_HISTORICO_MS = 10UL * 60UL * 1000UL; // registra localmente a cada 10 min
 // 7 dias a cada 10 min; o histórico completo fica na Hostinger.
 const int HISTORICO_MAX_LINHAS = 1008;
@@ -149,19 +150,19 @@ int reles[8] = {42, 41, 40, 39, 38, 37, 36, 35};
 // ---------------- ÍNDICES DOS RELÉS ----------------
 const int TOTAL_RELES = 8;           // índices 0-7
 const int RELE_LUZ = 0;              // ver controlarLuz()
-const int RELE_DESUMIDIFICADOR = 1;  // "Desumidificador"
+const int RELE_UMIDIFICADOR = 1;     // "Umidificador"
 const int RELE_VENTILADOR = 2;       // "Ventilador"
-const int RELE_VAZIO_2 = 3;          // não utilizado
-const int RELE_ENTRADA_AR_1 = 4;     // "Entrada de Ar 1"
-const int RELE_ENTRADA_AR_2 = 5;     // "Entrada de Ar 2"
+const int RELE_IRRIGACAO = 3;        // "Irrigacao" (pino 39)
+const int RELE_ENTRADA_AR = 4;       // "Entrada de Ar" (pino 38)
+const int RELE_AQUECEDOR = 5;        // "Aquecedor" (pino 37)
 const int RELE_ACESSO = 6;           // trava (pulso)
 const int RELE_SAIDA_AR = 7;         // "Saida de Ar" (exaustor de saída)
 const int PRIMEIRO_RELE_MANUAL = 1;  // menor índice de relé "manual" (usado só como limite de segurança)
 const int CONTROLE_MODO_CULTIVO = -1; // sentinela: item de menu "Modo Cultivo" (não é relé de verdade)
 const int CONTROLE_LUZ_MANUAL = -2;   // sentinela: item de menu "Luz Manual" (override, não é relé de verdade)
 
-// Relés exibidos no menu e no dashboard (o índice 3 fica de fora).
-const int RELES_MANUAIS[] = {RELE_DESUMIDIFICADOR, RELE_VENTILADOR, RELE_ENTRADA_AR_1, RELE_ENTRADA_AR_2, RELE_SAIDA_AR};
+// Relés exibidos no menu e no dashboard (luz e trava têm controle próprio).
+const int RELES_MANUAIS[] = {RELE_UMIDIFICADOR, RELE_VENTILADOR, RELE_IRRIGACAO, RELE_ENTRADA_AR, RELE_AQUECEDOR, RELE_SAIDA_AR};
 const int TOTAL_RELES_MANUAIS = sizeof(RELES_MANUAIS) / sizeof(RELES_MANUAIS[0]);
 
 // ---------------- DISPLAY OLED ----------------
@@ -329,6 +330,7 @@ uint32_t corParaVPD(float vpd);
 void atualizarLEDVPD();
 void aplicarComandoRele(int indiceRele, int valor);
 void acionarRele(int numero, bool ligado);
+void pausarAutomacaoDoRele(int indiceRele, const char* origem);
 void definirModoCultivoRemoto(ModoCultivo novoModo);
 void definirModoControleLuzRemoto(ModoControleLuz novoModo);
 void liberarAcessoRemoto();
@@ -408,6 +410,7 @@ void atualizarLEDVPD() {
 // Comando de relé vindo do dashboard; ignora se o estado já é o pedido.
 void aplicarComandoRele(int indiceRele, int valor) {
   bool novoEstado = valor == 1;
+  pausarAutomacaoDoRele(indiceRele, "web"); // comando manual tem prioridade sobre a automação
   if (estadoReles[indiceRele] == novoEstado) return;
 
   acionarRele(indiceRele, novoEstado);
@@ -1074,6 +1077,7 @@ void alternarReleSelecionado() {
   }
 
   bool novoEstado = !estadoReles[releSelecionadoControle];
+  pausarAutomacaoDoRele(releSelecionadoControle, "manual");
   acionarRele(releSelecionadoControle, novoEstado);
   registrarEventoRele(releSelecionadoControle, novoEstado, "manual");
   salvarEstadoNaMemoria();
@@ -1129,13 +1133,15 @@ const char* nomeReleControle(int indiceRele) {
     case 0:
       return "Luz";
     case 1:
-      return "Desumidificador";
+      return "Umidificador";
     case 2:
       return "Ventilador";
+    case 3:
+      return "Irrigacao";
     case 4:
-      return "Entrada de Ar 1";
+      return "Entrada de Ar";
     case 5:
-      return "Entrada de Ar 2";
+      return "Aquecedor";
     case 6:
       return "Trava Acesso";
     case 7:
@@ -1382,6 +1388,147 @@ void definirDuracaoLuzRemoto(int minutos) {
     if (modoControleLuz != LUZ_AUTOMATICA) overrideLuzAte = millis() + duracaoOverrideLuzMs();
   }
   registrarEventoDuracaoLuz("web");
+}
+
+// ---------------- AUTOMAÇÕES (aquecedor e umidade) ----------------
+// Rodam no próprio ESP32 (funcionam sem internet), com histerese — as duas na mesma direção:
+//   aquecedor: liga abaixo de "min" °C e desliga ao chegar em "max" °C;
+//   umidade:   liga o umidificador abaixo de "min" % e desliga ao chegar em "max" %.
+// Comando do painel: tipo "automacao", alvo "aquecedor"|"umidade", valor "ativa;min;max" (ex.: "1;20.0;24.0").
+// Um comando manual no relé (painel ou OLED) pausa a automação dele.
+struct Automacao {
+  const char* chave;
+  int rele;
+  bool ativa;
+  float min;
+  float max;
+  bool porTemperatura;  // true = temperatura (aquecedor), false = umidade (umidificador)
+  float limiteInferior; // faixa aceita no comando
+  float limiteSuperior;
+  unsigned long ultimoAcionamentoEm;
+};
+
+Automacao automacoes[] = {
+  { "aquecedor", RELE_AQUECEDOR, false, 20.0f, 24.0f, true, 5.0f, 40.0f, 0 },
+  { "umidade", RELE_UMIDIFICADOR, false, 55.0f, 65.0f, false, 20.0f, 95.0f, 0 },
+};
+const int TOTAL_AUTOMACOES = sizeof(automacoes) / sizeof(automacoes[0]);
+const unsigned long INTERVALO_AUTOMACAO_MS = 5000;              // avalia a cada 5 s
+const unsigned long INTERVALO_MIN_ACIONAMENTO_AUTO_MS = 60000;  // protege o relé: no máx. 1 troca por minuto
+unsigned long ultimaAvaliacaoAutomacaoEm = 0;
+
+String valorAutomacao(const Automacao& a) {
+  return String(a.ativa ? 1 : 0) + ";" + String(a.min, 1) + ";" + String(a.max, 1);
+}
+
+void registrarEventoAutomacao(const Automacao& a, const char* origem) {
+  enfileirarComandoHostinger("automacao", a.chave, valorAutomacao(a), origem);
+}
+
+void salvarAutomacao(const Automacao& a) {
+  Preferences p;
+  p.begin("automacao", false);
+  p.putString(a.chave, valorAutomacao(a));
+  p.end();
+}
+
+// Lê "ativa;min;max"; retorna false se o formato ou a faixa forem inválidos.
+bool interpretarValorAutomacao(const Automacao& a, const String& valor, bool& ativa, float& minimo, float& maximo) {
+  int at = -1;
+  float mn = NAN, mx = NAN;
+  if (sscanf(valor.c_str(), "%d;%f;%f", &at, &mn, &mx) != 3) return false;
+  if (at != 0 && at != 1) return false;
+  if (isnan(mn) || isnan(mx) || mn < a.limiteInferior || mx > a.limiteSuperior || mx - mn < 1.0f) return false;
+  ativa = at == 1;
+  minimo = mn;
+  maximo = mx;
+  return true;
+}
+
+void restaurarAutomacoes() {
+  Preferences p;
+  p.begin("automacao", true);
+  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
+    Automacao& a = automacoes[i];
+    String salvo = p.getString(a.chave, "");
+    bool ativa;
+    float mn, mx;
+    if (salvo.length() > 0 && interpretarValorAutomacao(a, salvo, ativa, mn, mx)) {
+      a.ativa = ativa;
+      a.min = mn;
+      a.max = mx;
+    }
+    Serial.printf("Automacao %s: %s (%.1f-%.1f)\n", a.chave, a.ativa ? "ativa" : "desativada", a.min, a.max);
+  }
+  p.end();
+}
+
+void definirAutomacaoRemota(const String& alvo, const String& valor) {
+  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
+    Automacao& a = automacoes[i];
+    if (alvo != a.chave) continue;
+    bool ativa;
+    float mn, mx;
+    if (!interpretarValorAutomacao(a, valor, ativa, mn, mx)) {
+      Serial.println("Hostinger: automacao invalida: " + alvo + " = " + valor);
+      return;
+    }
+    bool desativou = a.ativa && !ativa;
+    a.ativa = ativa;
+    a.min = mn;
+    a.max = mx;
+    a.ultimoAcionamentoEm = 0; // reavalia já com a faixa nova
+    salvarAutomacao(a);
+    registrarEventoAutomacao(a, "web");
+    // Ao desativar, o relé fica como está; o usuário decide pelo interruptor.
+    if (!desativou) ultimaAvaliacaoAutomacaoEm = 0;
+    atualizarOLED = true;
+    return;
+  }
+  Serial.println("Hostinger: automacao desconhecida: " + alvo);
+}
+
+void pausarAutomacaoDoRele(int indiceRele, const char* origem) {
+  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
+    Automacao& a = automacoes[i];
+    if (a.rele != indiceRele || !a.ativa) continue;
+    a.ativa = false;
+    salvarAutomacao(a);
+    // "pausa_*" diferencia a pausa por comando manual da desativação pelo painel.
+    registrarEventoAutomacao(a, strcmp(origem, "manual") == 0 ? "pausa_oled" : "pausa_painel");
+    Serial.printf("Automacao %s pausada por comando manual\n", a.chave);
+  }
+}
+
+void atualizarAutomacoes() {
+  if (millis() - ultimaAvaliacaoAutomacaoEm < INTERVALO_AUTOMACAO_MS && ultimaAvaliacaoAutomacaoEm != 0) return;
+  ultimaAvaliacaoAutomacaoEm = millis();
+
+  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
+    Automacao& a = automacoes[i];
+    if (!a.ativa) continue;
+
+    float leitura = a.porTemperatura ? tempAtual : umidAtual;
+    bool ligado = estadoReles[a.rele];
+    bool desejado = ligado;
+
+    if (isnan(leitura)) {
+      desejado = false; // sem sensor, por segurança desliga
+    } else if (leitura < a.min) {
+      desejado = true;  // abaixo da faixa: liga (aquece / umidifica)
+    } else if (leitura >= a.max) {
+      desejado = false; // chegou no máximo: desliga
+    }
+
+    if (desejado == ligado) continue;
+    if (a.ultimoAcionamentoEm != 0 && millis() - a.ultimoAcionamentoEm < INTERVALO_MIN_ACIONAMENTO_AUTO_MS) continue;
+
+    a.ultimoAcionamentoEm = millis();
+    acionarRele(a.rele, desejado);
+    registrarEventoRele(a.rele, desejado, "automacao");
+    salvarEstadoNaMemoria();
+    atualizarOLED = true;
+  }
 }
 
 // ---------------- CONFIGURAÇÃO DE REDE (NVS + portal) ----------------
@@ -1832,6 +1979,8 @@ void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const Strin
     liberarAcessoRemoto();
   } else if (tipo == "luz_duracao") {
     definirDuracaoLuzRemoto(valor.toInt());
+  } else if (tipo == "automacao") {
+    definirAutomacaoRemota(alvo, valor);
   } else if (tipo == "fotoperiodo") {
     // valor = "HH:MM" (início da luz); a duração vem do modo.
     int h = -1, m = -1;
@@ -2336,8 +2485,8 @@ void registrarHistorico() {
   linha += String(estadoReles[RELE_LUZ] ? 1 : 0) + ",";
   linha += String(modoAtual == VEGETACAO ? "vegetativo" : "floracao") + ",";
   linha += String(estadoReles[RELE_VENTILADOR] ? 1 : 0) + ",";
-  linha += String(estadoReles[RELE_ENTRADA_AR_1] ? 1 : 0) + ",";
-  linha += String(estadoReles[RELE_ENTRADA_AR_2] ? 1 : 0) + ",";
+  linha += String(estadoReles[RELE_ENTRADA_AR] ? 1 : 0) + ",";
+  linha += String(estadoReles[RELE_AQUECEDOR] ? 1 : 0) + ",";
   linha += String(estadoReles[RELE_SAIDA_AR] ? 1 : 0) + ",";
   linha += String(acessoAtivo ? 1 : 0);
 
@@ -2466,11 +2615,13 @@ void setup() {
   restaurarEstadoDaMemoria();
   restaurarFotoperiodoDaMemoria();
   restaurarDuracaoLuzDaMemoria();
+  restaurarAutomacoes();
   iniciarHistorico();
   // Informa ao dashboard os horários de luz em uso.
   registrarEventoFotoperiodo(VEGETACAO, "boot");
   registrarEventoFotoperiodo(FLORACAO, "boot");
   registrarEventoDuracaoLuz("boot");
+  for (int i = 0; i < TOTAL_AUTOMACOES; i++) registrarEventoAutomacao(automacoes[i], "boot");
 
   carregarConfigRede();
 #if !WOKWI_SIMULATION
@@ -2551,5 +2702,6 @@ void loop() {
   DateTime now = obterAgora(); // uma única leitura de "agora" para o resto do ciclo
 
   controlarLuz(now);   // aplica fotoperíodo/override no relé de luz
+  atualizarAutomacoes(); // aquecedor e umidificador pelas faixas configuradas
   renderizarOLED(now);  // só efetivamente desenha se atualizarOLED == true
 }

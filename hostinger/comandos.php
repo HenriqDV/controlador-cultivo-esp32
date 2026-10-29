@@ -75,6 +75,17 @@ try {
     $stmtModo->execute();
     $modoAtual = $stmtModo->fetchColumn();
 
+    // Estado de cada automação confirmado pelo ESP32 (último registro por alvo, fora do LIMIT).
+    $automacoes = [];
+    $stmtAuto = db()->query(
+        "SELECT alvo, valor, origem, COALESCE(dispositivo_timestamp, criado_em) AS quando
+         FROM comandos_sistema
+         WHERE id IN (SELECT MAX(id) FROM comandos_sistema WHERE tipo = 'automacao' GROUP BY alvo)"
+    );
+    foreach ($stmtAuto->fetchAll() as $a) {
+        $automacoes[$a['alvo']] = $a;
+    }
+
     if (ob_get_length()) {
         ob_clean();
     }
@@ -82,6 +93,7 @@ try {
         'ok' => true,
         'dados' => $dados,
         'modo_atual' => $modoAtual !== false ? $modoAtual : null,
+        'automacoes' => (object) $automacoes,
     ]);
 } catch (Throwable $e) {
     if (ob_get_length()) {

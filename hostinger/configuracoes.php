@@ -106,7 +106,10 @@ function normalizar_preferencia(string $chave, $valor): ?string
             $v = preg_replace('/\s+/', ' ', strip_tags($v));
             return ($v !== '' && mb_strlen($v) <= 40) ? $v : null;
         case 'pagina_inicial':
-            return in_array($v, ['inicio', 'relogio', 'automacao', 'comandos', 'historico', 'dispositivo', 'configuracoes'], true) ? $v : null;
+            if ($v === 'automacao') {
+                $v = 'fotoperiodo'; // nome antigo da página
+            }
+            return in_array($v, ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'historico', 'dispositivo', 'configuracoes'], true) ? $v : null;
         case 'intervalo_atualizacao_seg':
             return in_array($v, ['60', '120', '300', '600'], true) ? $v : null;
         case 'periodo_padrao_historico':

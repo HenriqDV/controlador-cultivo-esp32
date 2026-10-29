@@ -13,7 +13,7 @@
     <nav class="sidebar-nav">
       <button type="button" class="nav-item ativo" data-aba="inicio"><svg data-lucide="home"></svg>In&iacute;cio</button>
       <button type="button" class="nav-item" data-aba="relogio"><svg data-lucide="clock"></svg>Rel&oacute;gio de eventos</button>
-      <button type="button" class="nav-item" data-aba="automacao"><svg data-lucide="timer"></svg>Automa&ccedil;&atilde;o</button>
+      <button type="button" class="nav-item" data-aba="fotoperiodo"><svg data-lucide="timer"></svg>Fotoper&iacute;odo</button>
       <button type="button" class="nav-item" data-aba="comandos"><svg data-lucide="sliders-horizontal"></svg>Comandos</button>
       <button type="button" class="nav-item" data-aba="historico"><svg data-lucide="history"></svg>Hist&oacute;rico</button>
       <div class="nav-secao">Sistema</div>
