@@ -12,16 +12,17 @@
 //
 //  PINOS
 //    I2C (OLED + RTC DS1307 + SHT40): SDA 8, SCL 9
-//    Solo (ADC) 6 | DHT externo 16 | DHT interno 15 (só simulação)
+//    Solo capacitivo v1.2 (ADC) 6 | Caixa d'água HC-SR04: TRIG 12, ECHO 13 (com divisor 5V->3,3V)
+//    DHT externo 16 | DHT interno 15 (só simulação)
 //    Buzzer 17 | NeoPixel 4 (Wokwi) / 48 (placa) | Botão OLED 5 | Botão trava 19
 //    Relés {42,41,40,39,38,37,36,35}:
-//      0 Luz  1 Umidificador  2 Ventilador  3 Irrigacao (pino 39)
+//      0 Luz  1 Irrigacao (pino 41)  2 Ventilador  3 Umidificador (pino 39)
 //      4 Entrada de Ar (pino 38)  5 Aquecedor (pino 37)  6 Trava  7 Saída de Ar
 //
 //  NVRAM do RTC: bytes 0-7 relés/modo/override da luz, 8-12 horários de luz.
-//  NVS "automacao": faixas do aquecedor (temperatura) e da umidade (umidificador).
+//  NVS "clima": clima por VPD (fase, faixa de VPD e travas do aquecedor/umidificador).
 //
-//  CALIBRAR NO HARDWARE: SOLO_ADC_SECO/SOLO_ADC_UMIDO, RELE_ATIVO_EM_BAIXO.
+//  CALIBRAR NO HARDWARE: SOLO_MV_SECO/SOLO_MV_UMIDO, AGUA_SENSOR_ATE_FUNDO_CM, RELE_ATIVO_EM_BAIXO.
 // =============================================================================
 
 // Necessário em .cpp (o .ino incluía automaticamente).
@@ -33,7 +34,7 @@
 #define WOKWI_SIMULATION 0
 
 // Versão enviada ao painel (tela Dispositivo). Atualize a cada nova gravação.
-#define FIRMWARE_VERSAO "2.5.0"
+#define FIRMWARE_VERSAO "2.7.3"
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
 #endif
@@ -92,7 +93,7 @@ const unsigned long RETENTATIVA_NTP_MS = 60000;
 // ---------------- HOSTINGER ----------------
 const unsigned long HOSTINGER_HTTP_TIMEOUT_MS = 7000;
 const unsigned long INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS = 1000;
-const int HOSTINGER_FILA_COMANDOS_MAX = 20;
+const int HOSTINGER_FILA_COMANDOS_MAX = 30;
 String filaComandosHostinger[HOSTINGER_FILA_COMANDOS_MAX];
 int filaComandosInicio = 0;
 int filaComandosFim = 0;
@@ -122,12 +123,35 @@ unsigned long ultimaConsultaComandosPendentesEm = 0;
 
 #define SOIL_PIN 6
 
-// ---------------- CALIBRAÇÃO DO SENSOR DE SOLO ----------------
-// Seco = ADC alto, úmido = ADC baixo. Anote "soloBruto" no ar (SECO) e na
-// água (UMIDO).
-const int SOLO_ADC_SECO = 4095;   // calibrado: leitura bruta com o sensor seco
-const int SOLO_ADC_UMIDO = 2240;  // calibrado: leitura bruta com o sensor em água
-const int SOLO_AMOSTRAS = 8;      // nº de leituras médias por ciclo (reduz ruído do ADC)
+// ---------------- SENSOR DE SOLO: Capacitive Soil Moisture Sensor v1.2 ----------------
+// Saída analógica que CAI com a umidade: ~2,7 V no ar (seco) e ~1,1 V na água, alimentado em 3,3 V.
+// Lido em milivolts (analogReadMilliVolts usa a calibração de fábrica do ADC do ESP32-S3).
+// CALIBRAR: veja "Solo - mV" no monitor serial com o sensor no ar (SOLO_MV_SECO) e com ele
+// mergulhado em água até a linha branca da placa, sem molhar os componentes (SOLO_MV_UMIDO).
+const int SOLO_MV_SECO = 2700;           // mV com o sensor no ar
+const int SOLO_MV_UMIDO = 1100;          // mV com o sensor na água
+const int SOLO_MV_MINIMO_VALIDO = 300;   // abaixo: sensor solto ou sem alimentação
+const int SOLO_MV_MAXIMO_VALIDO = 3150;  // acima: fio de sinal solto (entrada flutuando)
+const int SOLO_AMOSTRAS = 16;            // leituras por ciclo; descarta as 4 maiores e as 4 menores
+const int SOLO_FALHAS_PARA_INVALIDAR = 3; // ciclos seguidos fora da faixa até marcar "sem leitura"
+
+// ---------------- CAIXA D'ÁGUA: sensor ultrassônico HC-SR04 ----------------
+// Fica na tampa, virado para baixo. O ECHO do HC-SR04 sai em 5 V: ligue por um divisor
+// (ECHO -> 1 kΩ -> pino 13 -> 2 kΩ -> GND) para não danificar o ESP32-S3. VCC em 5 V.
+#define AGUA_TRIG_PIN 12
+#define AGUA_ECHO_PIN 13
+const float CAIXA_COMPRIMENTO_CM = 66.0f;
+const float CAIXA_LARGURA_CM = 36.0f;
+const float CAIXA_ALTURA_CM = 35.0f;
+const float CAIXA_CAPACIDADE_L = 70.0f;        // capacidade útil (100%); paredes retas, 66 x 36 = 2,376 L por cm (70 L = 29,5 cm)
+const float AGUA_SENSOR_ATE_FUNDO_CM = 35.0f;  // CALIBRAR: da face do sensor até o fundo (caixa vazia)
+const float AGUA_DISTANCIA_MINIMA_CM = 3.0f;   // zona cega do HC-SR04
+const unsigned long INTERVALO_AGUA_MS = 10000; // mede a cada 10 s
+const int AGUA_PINGS = 5;                      // usa a mediana de 5 medições
+const unsigned long AGUA_ENTRE_PINGS_MS = 70;  // espera o eco anterior sumir
+const unsigned long AGUA_TIMEOUT_US = 6000;    // ~1 m ida e volta; não trava o loop
+const int AGUA_FALHAS_PARA_INVALIDAR = 3;      // ciclos seguidos sem eco até marcar "sem leitura"
+const float AGUA_PROTECAO_IRRIGACAO_PCT = 10.0f; // abaixo disso a irrigação desliga e fica bloqueada (bomba não roda a seco)
 
 #define BOTAO_OLED_PIN 5
 #define BOTAO_TRV_PIN 19
@@ -150,9 +174,9 @@ int reles[8] = {42, 41, 40, 39, 38, 37, 36, 35};
 // ---------------- ÍNDICES DOS RELÉS ----------------
 const int TOTAL_RELES = 8;           // índices 0-7
 const int RELE_LUZ = 0;              // ver controlarLuz()
-const int RELE_UMIDIFICADOR = 1;     // "Umidificador"
+const int RELE_IRRIGACAO = 1;        // "Irrigacao" (pino 41)
 const int RELE_VENTILADOR = 2;       // "Ventilador"
-const int RELE_IRRIGACAO = 3;        // "Irrigacao" (pino 39)
+const int RELE_UMIDIFICADOR = 3;     // "Umidificador" (pino 39)
 const int RELE_ENTRADA_AR = 4;       // "Entrada de Ar" (pino 38)
 const int RELE_AQUECEDOR = 5;        // "Aquecedor" (pino 37)
 const int RELE_ACESSO = 6;           // trava (pulso)
@@ -162,7 +186,7 @@ const int CONTROLE_MODO_CULTIVO = -1; // sentinela: item de menu "Modo Cultivo" 
 const int CONTROLE_LUZ_MANUAL = -2;   // sentinela: item de menu "Luz Manual" (override, não é relé de verdade)
 
 // Relés exibidos no menu e no dashboard (luz e trava têm controle próprio).
-const int RELES_MANUAIS[] = {RELE_UMIDIFICADOR, RELE_VENTILADOR, RELE_IRRIGACAO, RELE_ENTRADA_AR, RELE_AQUECEDOR, RELE_SAIDA_AR};
+const int RELES_MANUAIS[] = {RELE_IRRIGACAO, RELE_VENTILADOR, RELE_UMIDIFICADOR, RELE_ENTRADA_AR, RELE_AQUECEDOR, RELE_SAIDA_AR};
 const int TOTAL_RELES_MANUAIS = sizeof(RELES_MANUAIS) / sizeof(RELES_MANUAIS[0]);
 
 // ---------------- DISPLAY OLED ----------------
@@ -271,8 +295,21 @@ bool pulsoSensorExternoAtivo = false;
 unsigned long pulsoSensorExternoAte = 0;
 
 // ---------------- SOLO ----------------
-int soloBruto = 0;       // ADC bruto (útil p/ calibrar)
+int soloMv = 0;          // leitura em mV (útil p/ calibrar)
 int soloPercentual = 0;  // 0 = seco, 100 = encharcado, já calibrado
+bool soloValido = false; // false = sensor sem leitura (solto/sem alimentação); envia null ao servidor
+int soloFalhas = 0;
+
+// Caixa d'água (NAN = sem leitura)
+float aguaDistanciaCm = NAN;
+float aguaNivelCm = NAN;
+float aguaLitros = NAN;
+float aguaPercentual = NAN;
+float pingsAgua[AGUA_PINGS];
+int pingsAguaFeitos = 0;
+int aguaFalhas = 0;
+unsigned long ultimoCicloAguaEm = 0;
+unsigned long ultimoPingAguaEm = 0;
 unsigned long ultimoSolo = 0;
 const unsigned long INTERVALO_SOLO_MS = 1000;
 bool pulsoSensorSoloAtivo = false;  // indicador visual de "sensor vivo" (bolinha ao lado de "Solo", na TELA_PRINCIPAL)
@@ -330,7 +367,7 @@ uint32_t corParaVPD(float vpd);
 void atualizarLEDVPD();
 void aplicarComandoRele(int indiceRele, int valor);
 void acionarRele(int numero, bool ligado);
-void pausarAutomacaoDoRele(int indiceRele, const char* origem);
+void pausarClimaDoRele(int indiceRele, const char* origem);
 void definirModoCultivoRemoto(ModoCultivo novoModo);
 void definirModoControleLuzRemoto(ModoControleLuz novoModo);
 void liberarAcessoRemoto();
@@ -407,10 +444,21 @@ void atualizarLEDVPD() {
   pixel.show();
 }
 
+// Proteção da bomba: com a caixa abaixo de 10% a irrigação não liga. Sem leitura do sensor, não bloqueia.
+bool irrigacaoBloqueadaPelaAgua() {
+  return !isnan(aguaPercentual) && aguaPercentual < AGUA_PROTECAO_IRRIGACAO_PCT;
+}
+
 // Comando de relé vindo do dashboard; ignora se o estado já é o pedido.
 void aplicarComandoRele(int indiceRele, int valor) {
   bool novoEstado = valor == 1;
-  pausarAutomacaoDoRele(indiceRele, "web"); // comando manual tem prioridade sobre a automação
+  if (indiceRele == RELE_IRRIGACAO && novoEstado && irrigacaoBloqueadaPelaAgua()) {
+    // Recusa e confirma ao painel que a irrigação continua desligada.
+    registrarEventoRele(RELE_IRRIGACAO, false, "bloqueio_agua");
+    Serial.println("Irrigacao bloqueada: caixa d'agua abaixo de 10%");
+    return;
+  }
+  pausarClimaDoRele(indiceRele, "web"); // comando manual tem prioridade sobre o clima por VPD
   if (estadoReles[indiceRele] == novoEstado) return;
 
   acionarRele(indiceRele, novoEstado);
@@ -636,10 +684,10 @@ String formatarVPD(float valor) {
   return texto;
 }
 
-// Classificação simples exibida no rodapé — ver limiar em soloPercentual.
-const char* estadoSolo() {
-  if (soloPercentual >= 50) return "Umido";
-  return "Seco";
+// Texto curto do rodapé da tela principal ("45%" ou "--" sem leitura).
+String textoPercentual(bool valido, float valor) {
+  if (!valido || isnan(valor)) return "--";
+  return String((int)roundf(valor)) + "%";
 }
 
 // ---------- tela principal: interna x externa + linha do solo ----------
@@ -720,8 +768,13 @@ void desenharConteudoPrincipal() {
     display.drawCircle(dotSoloX, dotSoloY, 3, SSD1306_WHITE);
   }
   display.setCursor(dotSoloX + 6, ySala);
-  display.print("Solo: ");
-  display.print(estadoSolo());
+  display.print("Solo ");
+  display.print(textoPercentual(soloValido, soloPercentual));
+
+  // --- Caixa d'água no mesmo rodapé, coluna da direita ---
+  display.setCursor(xColunaExterna, ySala);
+  display.print("Agua ");
+  display.print(textoPercentual(!isnan(aguaPercentual), aguaPercentual));
 
   // --- Separador vertical (não desce até a linha do solo) ---
   display.drawFastVLine(xDivisor, OLED_CONTEUDO_TOPO - 1, yDivisorSala - (OLED_CONTEUDO_TOPO - 1), SSD1306_WHITE);
@@ -936,8 +989,10 @@ void desenharTelaDescanso(const DateTime& now) {
   y += espacoLinha;
 
   display.setCursor(xDados, y);
-  display.print("S: ");
-  display.print(estadoSolo());
+  display.print("S:");
+  display.print(textoPercentual(soloValido, soloPercentual));
+  display.print(" A:");  // caixa d'água
+  display.print(textoPercentual(!isnan(aguaPercentual), aguaPercentual));
 
   // --- Ícone (direita): sol ou lua, conforme o estado real do relé de luz ---
   if (estadoReles[RELE_LUZ]) {
@@ -1077,7 +1132,12 @@ void alternarReleSelecionado() {
   }
 
   bool novoEstado = !estadoReles[releSelecionadoControle];
-  pausarAutomacaoDoRele(releSelecionadoControle, "manual");
+  if (releSelecionadoControle == RELE_IRRIGACAO && novoEstado && irrigacaoBloqueadaPelaAgua()) {
+    mostrarMensagemTemporaria("Caixa vazia", 1500);  // proteção da bomba
+    registrarEventoRele(RELE_IRRIGACAO, false, "bloqueio_agua");
+    return;
+  }
+  pausarClimaDoRele(releSelecionadoControle, "manual");
   acionarRele(releSelecionadoControle, novoEstado);
   registrarEventoRele(releSelecionadoControle, novoEstado, "manual");
   salvarEstadoNaMemoria();
@@ -1133,11 +1193,11 @@ const char* nomeReleControle(int indiceRele) {
     case 0:
       return "Luz";
     case 1:
-      return "Umidificador";
+      return "Irrigacao";
     case 2:
       return "Ventilador";
     case 3:
-      return "Irrigacao";
+      return "Umidificador";
     case 4:
       return "Entrada de Ar";
     case 5:
@@ -1209,7 +1269,10 @@ void atualizarAcesso() {
 // ---------------- PERSISTÊNCIA (NVRAM DO RTC DS1307) ----------------
 // [0] marcador  [1] bitmask relés manuais  [2] modo  [3] override luz
 // [4..7] expiração do override em unixtime (millis() zera no boot).
-const uint8_t NVRAM_MARCADOR_VALIDO = 0xA5;
+// Marcador 0xA6: umidificador no relé 3 e irrigação no relé 1 (firmware 2.6.3).
+// Marcador 0xA5: layout antigo (umidificador no 1, irrigação no 3) -> convertido ao ler.
+const uint8_t NVRAM_MARCADOR_VALIDO = 0xA6;
+const uint8_t NVRAM_MARCADOR_ANTIGO = 0xA5;
 const uint8_t NVRAM_ENDERECO_BASE = 0;
 const uint8_t NVRAM_TAMANHO = 8;
 
@@ -1268,12 +1331,20 @@ void restaurarEstadoDaMemoria() {
   Serial.println(((uint32_t)buffer[4] << 24) | ((uint32_t)buffer[5] << 16) |
                   ((uint32_t)buffer[6] << 8) | (uint32_t)buffer[7]);
 
-  if (buffer[0] != NVRAM_MARCADOR_VALIDO) {
+  uint8_t bitmaskReles = buffer[1];
+  if (buffer[0] == NVRAM_MARCADOR_ANTIGO) {
+    // Layout antigo: troca os bits 1 e 3 para o umidificador não voltar como irrigação (e vice-versa).
+    bool bit1 = bitmaskReles & (1 << 1);
+    bool bit3 = bitmaskReles & (1 << 3);
+    bitmaskReles &= ~((1 << 1) | (1 << 3));
+    if (bit1) bitmaskReles |= (1 << 3);
+    if (bit3) bitmaskReles |= (1 << 1);
+    Serial.println("NVRAM no layout antigo - reles 1 e 3 convertidos (umidificador agora no rele 3)");
+  } else if (buffer[0] != NVRAM_MARCADOR_VALIDO) {
     Serial.println("NVRAM sem marcador valido - mantendo padroes de fabrica");
     return;
   }
 
-  uint8_t bitmaskReles = buffer[1];
   modoAtual = (buffer[2] == 1) ? FLORACAO : VEGETACAO;
 
   // Restaura só os relés manuais; a trava nunca volta ligada.
@@ -1307,6 +1378,16 @@ void restaurarEstadoDaMemoria() {
 
   Serial.println("Estado dos reles e modo de cultivo restaurados da memoria do RTC");
   atualizarOLED = true;
+}
+
+// Ao ligar, informa ao painel o estado real de cada relé manual (restaurado da memória do RTC
+// ou desligado, se não havia memória). Sem isso, depois de um reinício ou de uma queda de energia
+// o relé voltava ligado (ou desligado) e o servidor continuava com o estado antigo.
+void registrarEstadoInicialReles() {
+  for (int i = 0; i < TOTAL_RELES_MANUAIS; i++) {
+    int idx = RELES_MANUAIS[i];
+    registrarEventoRele(idx, estadoReles[idx], "boot");
+  }
 }
 
 // Fotoperíodo: bloco próprio com marcador (versões antigas caem no padrão).
@@ -1390,145 +1471,279 @@ void definirDuracaoLuzRemoto(int minutos) {
   registrarEventoDuracaoLuz("web");
 }
 
-// ---------------- AUTOMAÇÕES (aquecedor e umidade) ----------------
-// Rodam no próprio ESP32 (funcionam sem internet), com histerese — as duas na mesma direção:
-//   aquecedor: liga abaixo de "min" °C e desliga ao chegar em "max" °C;
-//   umidade:   liga o umidificador abaixo de "min" % e desliga ao chegar em "max" %.
-// Comando do painel: tipo "automacao", alvo "aquecedor"|"umidade", valor "ativa;min;max" (ex.: "1;20.0;24.0").
-// Um comando manual no relé (painel ou OLED) pausa a automação dele.
-struct Automacao {
-  const char* chave;
-  int rele;
+// ---------------- CLIMA POR VPD (só o umidificador) ----------------
+// Roda no próprio ESP32 (funciona sem internet). O usuário escolhe a fase do clima
+// (muda, vegetação ou floração) e a faixa de VPD dela. Só o umidificador age, usando a faixa inteira:
+//   o VPD deve ficar SEMPRE dentro da faixa, então o umidificador age antes das bordas:
+//   liga no "ponto de ligar" (25% da largura abaixo do máximo; faixa 1,20–1,60 -> 1,50),
+//   umidifica até o "ponto de desligar" (25% acima do mínimo -> 1,30) e desliga;
+//   fica desligado até o VPD voltar ao ponto de ligar.
+//   A 10% de cada borda (1,56 / 1,24) age na hora, sem confirmação nem tempo mínimo:
+//   perto do máximo liga imediatamente (prioridade); perto do mínimo só espera 1 min desde a última troca.
+// O aquecedor NÃO participa (é um relé comum, só manual).
+// Trava: o umidificador nunca passa de travaUmid % (travaTemp segue no comando só por compatibilidade).
+//
+// Contra o liga/desliga curto (névoa do umidificador batendo no sensor, estufa pequena):
+//   - o controle usa a média dos últimos 60 s (12 amostras a cada 5 s) descartando os 2 valores
+//     mais altos e os 2 mais baixos, então picos curtos de névoa no sensor não contam;
+//   - a condição precisa se manter por 30 s seguidos antes de ligar ou desligar;
+//   - o umidificador fica no mínimo minLigado minutos ligado e minDesligado minutos desligado.
+//   A trava e a falta de sensor desligam na hora (segurança), sem esperar esses tempos.
+// Cada ação manda ao painel um evento "clima_leitura" com a leitura e o motivo.
+//
+// Comando do painel: tipo "clima_vpd", alvo "clima",
+//   valor "ativa;fase;min;max;travaTemp;travaUmid;minLigado;minDesligado"
+//   ex.: "1;2;1.20;1.60;28.0;60;3;3" (fase: 0 muda, 1 vegetação, 2 floração; tempos em minutos).
+//   O formato antigo, sem os dois tempos, também é aceito (usa 3 e 3 min).
+// Um comando manual no umidificador (painel ou OLED) pausa o clima.
+struct ClimaVpd {
   bool ativa;
+  int fase;
   float min;
   float max;
-  bool porTemperatura;  // true = temperatura (aquecedor), false = umidade (umidificador)
-  float limiteInferior; // faixa aceita no comando
-  float limiteSuperior;
-  unsigned long ultimoAcionamentoEm;
+  float travaTemp;
+  float travaUmid;
+  int minLigado;     // minutos
+  int minDesligado;  // minutos
 };
+ClimaVpd clima = { false, 2, 1.20f, 1.60f, 28.0f, 60.0f, 3, 3 };
+const char* NOMES_FASE_CLIMA[] = { "muda", "vegetacao", "floracao" };
+const unsigned long INTERVALO_CLIMA_MS = 5000;     // amostra e avalia a cada 5 s
+const int AMOSTRAS_MEDIA_CLIMA = 12;               // 12 x 5 s = média de 60 s
+const int AMOSTRAS_MINIMAS_CLIMA = 6;              // precisa de 30 s de leitura para agir
+const unsigned long CONFIRMACAO_CLIMA_MS = 30000;  // condição sustentada por 30 s
+const float FOLGA_TRAVA_UMID = 2.0f;  // só volta a ligar o umidificador 2% abaixo da trava
+// O VPD deve ficar SEMPRE dentro da faixa. Por isso o umidificador age antes das bordas:
+//   liga a 25% da largura abaixo do máximo e desliga a 25% acima do mínimo
+//   (ex.: faixa 1,20–1,60 → liga em 1,50 e desliga em 1,30);
+//   a 10% de cada borda (1,56 / 1,24) age na hora, sem confirmação nem tempo mínimo.
+const float MARGEM_ACAO_FRACAO = 0.25f;
+const float MARGEM_URGENTE_FRACAO = 0.10f;
+const unsigned long INTERVALO_MINIMO_PISO_MS = 60000;  // perto do mínimo: ainda espera 1 min desde a última troca
+unsigned long ultimaAvaliacaoClimaEm = 0;
 
-Automacao automacoes[] = {
-  { "aquecedor", RELE_AQUECEDOR, false, 20.0f, 24.0f, true, 5.0f, 40.0f, 0 },
-  { "umidade", RELE_UMIDIFICADOR, false, 55.0f, 65.0f, false, 20.0f, 95.0f, 0 },
+float amostrasTempClima[AMOSTRAS_MEDIA_CLIMA];
+float amostrasUmidClima[AMOSTRAS_MEDIA_CLIMA];
+int proximaAmostraClima = 0;
+bool amostrasClimaIniciadas = false;
+
+// Estado de controle de cada relé do clima.
+struct ControleClima {
+  int rele;
+  unsigned long mudouEm;      // quando o relé mudou de estado (0 = desconhecido, ex.: depois de ligar o ESP32)
+  bool ultimoEstado;
+  bool pedido;                // estado pedido aguardando confirmação
+  unsigned long pedidoDesde;  // 0 = nenhum pedido
 };
-const int TOTAL_AUTOMACOES = sizeof(automacoes) / sizeof(automacoes[0]);
-const unsigned long INTERVALO_AUTOMACAO_MS = 5000;              // avalia a cada 5 s
-const unsigned long INTERVALO_MIN_ACIONAMENTO_AUTO_MS = 60000;  // protege o relé: no máx. 1 troca por minuto
-unsigned long ultimaAvaliacaoAutomacaoEm = 0;
+ControleClima ctlUmidificador = { RELE_UMIDIFICADOR, 0, false, false, 0 };
 
-String valorAutomacao(const Automacao& a) {
-  return String(a.ativa ? 1 : 0) + ";" + String(a.min, 1) + ";" + String(a.max, 1);
+String valorClima(const ClimaVpd& c) {
+  return String(c.ativa ? 1 : 0) + ";" + String(c.fase) + ";" + String(c.min, 2) + ";" + String(c.max, 2) + ";" +
+         String(c.travaTemp, 1) + ";" + String((int)roundf(c.travaUmid)) + ";" + String(c.minLigado) + ";" + String(c.minDesligado);
 }
 
-void registrarEventoAutomacao(const Automacao& a, const char* origem) {
-  enfileirarComandoHostinger("automacao", a.chave, valorAutomacao(a), origem);
+void registrarEventoClima(const char* origem) {
+  enfileirarComandoHostinger("clima_vpd", "clima", valorClima(clima), origem);
 }
 
-void salvarAutomacao(const Automacao& a) {
+void salvarClima() {
   Preferences p;
-  p.begin("automacao", false);
-  p.putString(a.chave, valorAutomacao(a));
+  p.begin("clima", false);
+  p.putString("cfg", valorClima(clima));
   p.end();
 }
 
-// Lê "ativa;min;max"; retorna false se o formato ou a faixa forem inválidos.
-bool interpretarValorAutomacao(const Automacao& a, const String& valor, bool& ativa, float& minimo, float& maximo) {
-  int at = -1;
-  float mn = NAN, mx = NAN;
-  if (sscanf(valor.c_str(), "%d;%f;%f", &at, &mn, &mx) != 3) return false;
-  if (at != 0 && at != 1) return false;
-  if (isnan(mn) || isnan(mx) || mn < a.limiteInferior || mx > a.limiteSuperior || mx - mn < 1.0f) return false;
-  ativa = at == 1;
-  minimo = mn;
-  maximo = mx;
+// Lê "ativa;fase;min;max;travaTemp;travaUmid[;minLigado;minDesligado]"; false se inválido.
+bool interpretarValorClima(const String& valor, ClimaVpd& saida) {
+  int at = -1, fase = -1, mLig = 3, mDes = 3;
+  float mn = NAN, mx = NAN, tt = NAN, tu = NAN;
+  int lidos = sscanf(valor.c_str(), "%d;%d;%f;%f;%f;%f;%d;%d", &at, &fase, &mn, &mx, &tt, &tu, &mLig, &mDes);
+  if (lidos != 6 && lidos != 8) return false;
+  if ((at != 0 && at != 1) || fase < 0 || fase > 2) return false;
+  if (isnan(mn) || isnan(mx) || mn < 0.2f || mx > 2.5f || mx - mn < 0.1f) return false;
+  if (isnan(tt) || tt < 15.0f || tt > 40.0f || isnan(tu) || tu < 30.0f || tu > 95.0f) return false;
+  if (mLig < 1 || mLig > 15 || mDes < 1 || mDes > 15) return false;
+  saida = { at == 1, fase, mn, mx, tt, tu, mLig, mDes };
   return true;
 }
 
-void restaurarAutomacoes() {
+void restaurarClima() {
   Preferences p;
-  p.begin("automacao", true);
-  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
-    Automacao& a = automacoes[i];
-    String salvo = p.getString(a.chave, "");
-    bool ativa;
-    float mn, mx;
-    if (salvo.length() > 0 && interpretarValorAutomacao(a, salvo, ativa, mn, mx)) {
-      a.ativa = ativa;
-      a.min = mn;
-      a.max = mx;
-    }
-    Serial.printf("Automacao %s: %s (%.1f-%.1f)\n", a.chave, a.ativa ? "ativa" : "desativada", a.min, a.max);
-  }
+  p.begin("clima", true);
+  String salvo = p.getString("cfg", "");
   p.end();
+  ClimaVpd lido;
+  if (salvo.length() > 0 && interpretarValorClima(salvo, lido)) clima = lido;
+
+  // Uma vez só, ao atualizar para o 2.7.2: o aquecedor deixou de ser controlado pelo clima.
+  // Se ele estava ligado pela versão anterior, desliga para não ficar ligado indefinidamente.
+  Preferences pm;
+  pm.begin("clima", false);
+  if (!pm.getBool("aq_fora", false)) {
+    if (estadoReles[RELE_AQUECEDOR]) {
+      acionarRele(RELE_AQUECEDOR, false);
+      salvarEstadoNaMemoria();
+      Serial.println("Clima por VPD sem aquecedor: aquecedor desligado uma vez na atualizacao");
+    }
+    pm.putBool("aq_fora", true);
+  }
+  pm.end();
+  Serial.printf("Clima por VPD: %s, fase %s, %.2f-%.2f kPa, travas %.1f C / %.0f%%, minimo %d/%d min\n",
+                clima.ativa ? "ativo" : "desativado", NOMES_FASE_CLIMA[clima.fase], clima.min, clima.max,
+                clima.travaTemp, clima.travaUmid, clima.minLigado, clima.minDesligado);
 }
 
-void definirAutomacaoRemota(const String& alvo, const String& valor) {
-  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
-    Automacao& a = automacoes[i];
-    if (alvo != a.chave) continue;
-    bool ativa;
-    float mn, mx;
-    if (!interpretarValorAutomacao(a, valor, ativa, mn, mx)) {
-      Serial.println("Hostinger: automacao invalida: " + alvo + " = " + valor);
-      return;
-    }
-    bool desativou = a.ativa && !ativa;
-    a.ativa = ativa;
-    a.min = mn;
-    a.max = mx;
-    a.ultimoAcionamentoEm = 0; // reavalia já com a faixa nova
-    salvarAutomacao(a);
-    registrarEventoAutomacao(a, "web");
-    // Ao desativar, o relé fica como está; o usuário decide pelo interruptor.
-    if (!desativou) ultimaAvaliacaoAutomacaoEm = 0;
-    atualizarOLED = true;
+void definirClimaRemoto(const String& valor) {
+  ClimaVpd novo;
+  if (!interpretarValorClima(valor, novo)) {
+    Serial.println("Hostinger: clima_vpd invalido: " + valor);
     return;
   }
-  Serial.println("Hostinger: automacao desconhecida: " + alvo);
+  clima = novo;
+  ctlUmidificador.pedidoDesde = 0;   // pedido pendente recomeça com a configuração nova
+  ultimaAvaliacaoClimaEm = 0;
+  salvarClima();
+  registrarEventoClima("web");
+  // Ao desativar, os relés ficam como estão; o usuário decide pelos interruptores.
+  atualizarOLED = true;
 }
 
-void pausarAutomacaoDoRele(int indiceRele, const char* origem) {
-  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
-    Automacao& a = automacoes[i];
-    if (a.rele != indiceRele || !a.ativa) continue;
-    a.ativa = false;
-    salvarAutomacao(a);
-    // "pausa_*" diferencia a pausa por comando manual da desativação pelo painel.
-    registrarEventoAutomacao(a, strcmp(origem, "manual") == 0 ? "pausa_oled" : "pausa_painel");
-    Serial.printf("Automacao %s pausada por comando manual\n", a.chave);
+// Comando manual no umidificador: o clima pausa (o comando manual vale). O aquecedor não pausa nada.
+void pausarClimaDoRele(int indiceRele, const char* origem) {
+  if (!clima.ativa || indiceRele != RELE_UMIDIFICADOR) return;
+  clima.ativa = false;
+  salvarClima();
+  // "pausa_*" diferencia a pausa por comando manual da desativação pelo painel.
+  registrarEventoClima(strcmp(origem, "manual") == 0 ? "pausa_oled" : "pausa_painel");
+  Serial.println("Clima por VPD pausado por comando manual");
+}
+
+// Média sem os extremos: ordena e descarta os 2 maiores e os 2 menores (com 8 ou mais amostras).
+float mediaSemExtremos(float* valores, int n) {
+  for (int i = 1; i < n; i++) {  // ordenação por inserção (n <= 12)
+    float v = valores[i];
+    int j = i - 1;
+    while (j >= 0 && valores[j] > v) { valores[j + 1] = valores[j]; j--; }
+    valores[j + 1] = v;
+  }
+  int corte = n >= 8 ? 2 : 0;
+  float soma = 0;
+  for (int i = corte; i < n - corte; i++) soma += valores[i];
+  return soma / (n - 2 * corte);
+}
+
+// Guarda a leitura instantânea e devolve a média dos últimos 60 s sem os extremos.
+void amostrarClima(float& tempMedia, float& umidMedia, int& validas) {
+  if (!amostrasClimaIniciadas) {
+    for (int i = 0; i < AMOSTRAS_MEDIA_CLIMA; i++) { amostrasTempClima[i] = NAN; amostrasUmidClima[i] = NAN; }
+    amostrasClimaIniciadas = true;
+  }
+  amostrasTempClima[proximaAmostraClima] = tempAtual;
+  amostrasUmidClima[proximaAmostraClima] = umidAtual;
+  proximaAmostraClima = (proximaAmostraClima + 1) % AMOSTRAS_MEDIA_CLIMA;
+  float t[AMOSTRAS_MEDIA_CLIMA], u[AMOSTRAS_MEDIA_CLIMA];
+  validas = 0;
+  for (int i = 0; i < AMOSTRAS_MEDIA_CLIMA; i++) {
+    if (isnan(amostrasTempClima[i]) || isnan(amostrasUmidClima[i])) continue;
+    t[validas] = amostrasTempClima[i];
+    u[validas] = amostrasUmidClima[i];
+    validas++;
+  }
+  tempMedia = validas > 0 ? mediaSemExtremos(t, validas) : NAN;
+  umidMedia = validas > 0 ? mediaSemExtremos(u, validas) : NAN;
+}
+
+// Liga/desliga o relé e avisa o painel com a leitura (média) e o motivo da ação.
+void executarAcaoClima(ControleClima& ctl, bool ligar, const char* motivo, float vpd, float temp, float umid) {
+  String leitura = String(ligar ? 1 : 0) + ";" + (isnan(vpd) ? String("") : String(vpd, 2)) + ";" +
+                   (isnan(temp) ? String("") : String(temp, 1)) + ";" + (isnan(umid) ? String("") : String(umid, 0)) + ";" + motivo;
+  enfileirarComandoHostinger("clima_leitura", nomeReleControle(ctl.rele), leitura, "automacao");
+  acionarRele(ctl.rele, ligar);
+  registrarEventoRele(ctl.rele, ligar, "automacao");
+  salvarEstadoNaMemoria();
+  ctl.mudouEm = millis();
+  ctl.ultimoEstado = ligar;
+  ctl.pedidoDesde = 0;
+  atualizarOLED = true;
+}
+
+// Decide se o pedido vira ação: segurança age na hora; o resto precisa de confirmação e do tempo mínimo.
+// urgente: o VPD está quase saindo da faixa; age sem esperar a confirmação nem o tempo mínimo.
+void decidirClima(ControleClima& ctl, bool desejado, bool seguranca, const char* motivo, float vpd, float temp, float umid, bool urgente = false) {
+  bool atual = estadoReles[ctl.rele];
+  if (desejado == atual) { ctl.pedidoDesde = 0; return; }
+  if (seguranca && !desejado) { executarAcaoClima(ctl, false, motivo, vpd, temp, umid); return; }
+  if (urgente) {
+    // Perto do máximo liga na hora (prioridade: nunca passar do máximo).
+    // Perto do mínimo espera 1 min desde a última troca, para não picotar o aparelho.
+    if (desejado || ctl.mudouEm == 0 || millis() - ctl.mudouEm >= INTERVALO_MINIMO_PISO_MS) executarAcaoClima(ctl, desejado, motivo, vpd, temp, umid);
+    return;
+  }
+
+  if (ctl.pedidoDesde == 0 || ctl.pedido != desejado) {  // novo pedido: começa a confirmar
+    ctl.pedido = desejado;
+    ctl.pedidoDesde = millis();
+    return;
+  }
+  if (millis() - ctl.pedidoDesde < CONFIRMACAO_CLIMA_MS) return;
+
+  unsigned long minimo = (unsigned long)(atual ? clima.minLigado : clima.minDesligado) * 60000UL;
+  if (ctl.mudouEm != 0 && millis() - ctl.mudouEm < minimo) return;  // ainda dentro do tempo mínimo
+
+  executarAcaoClima(ctl, desejado, motivo, vpd, temp, umid);
+}
+
+// Mudança feita fora do clima (comando manual, restauração ao ligar): reinicia o tempo mínimo a partir dela.
+void acompanharMudancaExterna(ControleClima& ctl) {
+  bool estado = estadoReles[ctl.rele];
+  if (estado != ctl.ultimoEstado) {
+    ctl.ultimoEstado = estado;
+    ctl.mudouEm = millis();
+    ctl.pedidoDesde = 0;
   }
 }
 
-void atualizarAutomacoes() {
-  if (millis() - ultimaAvaliacaoAutomacaoEm < INTERVALO_AUTOMACAO_MS && ultimaAvaliacaoAutomacaoEm != 0) return;
-  ultimaAvaliacaoAutomacaoEm = millis();
+void atualizarClima() {
+  if (ultimaAvaliacaoClimaEm != 0 && millis() - ultimaAvaliacaoClimaEm < INTERVALO_CLIMA_MS) return;
+  ultimaAvaliacaoClimaEm = millis();
 
-  for (int i = 0; i < TOTAL_AUTOMACOES; i++) {
-    Automacao& a = automacoes[i];
-    if (!a.ativa) continue;
+  float temp, umid;
+  int validas;
+  amostrarClima(temp, umid, validas);  // amostra sempre, mesmo desativado, para a média estar pronta
+  acompanharMudancaExterna(ctlUmidificador);
+  if (!clima.ativa) return;
 
-    float leitura = a.porTemperatura ? tempAtual : umidAtual;
-    bool ligado = estadoReles[a.rele];
-    bool desejado = ligado;
-
-    if (isnan(leitura)) {
-      desejado = false; // sem sensor, por segurança desliga
-    } else if (leitura < a.min) {
-      desejado = true;  // abaixo da faixa: liga (aquece / umidifica)
-    } else if (leitura >= a.max) {
-      desejado = false; // chegou no máximo: desliga
-    }
-
-    if (desejado == ligado) continue;
-    if (a.ultimoAcionamentoEm != 0 && millis() - a.ultimoAcionamentoEm < INTERVALO_MIN_ACIONAMENTO_AUTO_MS) continue;
-
-    a.ultimoAcionamentoEm = millis();
-    acionarRele(a.rele, desejado);
-    registrarEventoRele(a.rele, desejado, "automacao");
-    salvarEstadoNaMemoria();
-    atualizarOLED = true;
+  // Sem leitura do sensor: por segurança desliga na hora.
+  if (isnan(tempAtual) || isnan(umidAtual) || validas == 0) {
+    decidirClima(ctlUmidificador, false, true, "sem_sensor", NAN, NAN, NAN);
+    return;
   }
+  if (validas < AMOSTRAS_MINIMAS_CLIMA) return;  // média ainda se formando (primeiros 30 s)
+
+  float vpd = calcularVPD(temp, umid);
+
+  // Umidificador: liga no ponto de ligar e desliga no ponto de desligar, os dois dentro da faixa.
+  // Perto do máximo usa também a leitura instantânea: a névoa no sensor só faz o VPD parecer
+  // MAIS BAIXO, então ela nunca liga à toa e reage antes da média de 60 s.
+  // Perto do mínimo usa só a média, para um pico de névoa no sensor não desligar à toa.
+  float largura = clima.max - clima.min;
+  float ligaEm = clima.max - largura * MARGEM_ACAO_FRACAO;
+  float desligaEm = clima.min + largura * MARGEM_ACAO_FRACAO;
+  float tetoUrgente = clima.max - largura * MARGEM_URGENTE_FRACAO;
+  float pisoUrgente = clima.min + largura * MARGEM_URGENTE_FRACAO;
+  float vpdAgora = calcularVPD(tempAtual, umidAtual);
+  float vpdTeto = (vpdAgora > vpd) ? vpdAgora : vpd;
+  bool umidificador = estadoReles[RELE_UMIDIFICADOR];
+  bool deseja = umidificador, seguranca = false, urgente = false;
+  const char* motivo = "ponto_desligar";
+  bool podeUmidificar = umid < clima.travaUmid - FOLGA_TRAVA_UMID && umidAtual < clima.travaUmid - FOLGA_TRAVA_UMID;
+  if (umid >= clima.travaUmid) { deseja = false; seguranca = true; motivo = "trava_umid"; }
+  else if (vpdTeto >= tetoUrgente && podeUmidificar) { deseja = true; urgente = true; motivo = "teto"; vpd = vpdTeto; }
+  else if (vpd >= ligaEm && podeUmidificar) { deseja = true; motivo = "ponto_ligar"; }
+  else if (vpd <= pisoUrgente) { deseja = false; urgente = true; motivo = "piso"; }
+  else if (vpd <= desligaEm) { deseja = false; motivo = "ponto_desligar"; }
+
+  decidirClima(ctlUmidificador, deseja, seguranca && !deseja, motivo, vpd, temp, umid, urgente);
 }
 
 // ---------------- CONFIGURAÇÃO DE REDE (NVS + portal) ----------------
@@ -1894,7 +2109,10 @@ void enviarLeituraHostinger() {
   payload += "\"umid_interna\":" + valorJsonFloat(umidAtual, 0) + ",";
   payload += "\"temp_externa\":" + valorJsonFloat(tempExterna, 1) + ",";
   payload += "\"umid_externa\":" + valorJsonFloat(umidExterna, 0) + ",";
-  payload += "\"solo_percentual\":" + String(soloPercentual) + ",";
+  payload += "\"solo_percentual\":" + (soloValido ? String(soloPercentual) : String("null")) + ",";
+  payload += "\"agua_distancia_cm\":" + valorJsonFloat(aguaDistanciaCm, 1) + ",";
+  payload += "\"agua_litros\":" + valorJsonFloat(aguaLitros, 1) + ",";
+  payload += "\"agua_percentual\":" + (isnan(aguaPercentual) ? String("null") : String((int)roundf(aguaPercentual))) + ",";
   // Status do dispositivo (opcionais: o servidor aceita leituras sem eles).
   payload += "\"firmware\":\"" FIRMWARE_VERSAO "\",";
   payload += "\"modelo\":\"" + escaparJson(String(ESP.getChipModel())) + "\",";
@@ -1979,8 +2197,8 @@ void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const Strin
     liberarAcessoRemoto();
   } else if (tipo == "luz_duracao") {
     definirDuracaoLuzRemoto(valor.toInt());
-  } else if (tipo == "automacao") {
-    definirAutomacaoRemota(alvo, valor);
+  } else if (tipo == "clima_vpd") {
+    definirClimaRemoto(valor);
   } else if (tipo == "fotoperiodo") {
     // valor = "HH:MM" (início da luz); a duração vem do modo.
     int h = -1, m = -1;
@@ -2190,38 +2408,126 @@ void atualizarPulsoSensorExterno() {
   }
 }
 
-// ---------------- SOLO ----------------
+// ---------------- SOLO (capacitivo v1.2) ----------------
 void atualizarSolo() {
   if (millis() - ultimoSolo < INTERVALO_SOLO_MS) return;
   ultimoSolo = millis();
 
-  // Média de várias leituras (ADC ruidoso).
-  long soma = 0;
+  // 16 leituras em mV; descarta as 4 maiores e as 4 menores (ruído do ADC e do oscilador do sensor).
+  int amostras[SOLO_AMOSTRAS];
   for (int i = 0; i < SOLO_AMOSTRAS; i++) {
-    soma += analogRead(SOIL_PIN);
+    amostras[i] = analogReadMilliVolts(SOIL_PIN);
     delayMicroseconds(200);
   }
-  int leitura = soma / SOLO_AMOSTRAS;
+  for (int i = 1; i < SOLO_AMOSTRAS; i++) {  // ordenação por inserção
+    int v = amostras[i], j = i - 1;
+    while (j >= 0 && amostras[j] > v) { amostras[j + 1] = amostras[j]; j--; }
+    amostras[j + 1] = v;
+  }
+  long soma = 0;
+  for (int i = 4; i < SOLO_AMOSTRAS - 4; i++) soma += amostras[i];
+  int mv = soma / (SOLO_AMOSTRAS - 8);
+  soloMv = mv;
 
-  // Mapeamento invertido: ADC alto = seco (0%), baixo = úmido (100%).
-  int percentual = map(leitura, SOLO_ADC_SECO, SOLO_ADC_UMIDO, 0, 100);
-  percentual = constrain(percentual, 0, 100);
+  // Fora da faixa elétrica do sensor: solto, sem alimentação ou fio de sinal flutuando.
+  bool foraDaFaixa = mv < SOLO_MV_MINIMO_VALIDO || mv > SOLO_MV_MAXIMO_VALIDO;
+  if (foraDaFaixa) {
+    if (++soloFalhas >= SOLO_FALHAS_PARA_INVALIDAR && soloValido) {
+      soloValido = false;
+      atualizarOLED = true;
+      Serial.printf("Solo - sem leitura (%d mV fora de %d-%d)\n", mv, SOLO_MV_MINIMO_VALIDO, SOLO_MV_MAXIMO_VALIDO);
+    }
+    return;
+  }
+  soloFalhas = 0;
 
-  if (percentual != soloPercentual) {
+  // Invertido: mais mV = mais seco (0%), menos mV = mais úmido (100%).
+  float fracao = (float)(SOLO_MV_SECO - mv) / (float)(SOLO_MV_SECO - SOLO_MV_UMIDO);
+  int percentual = constrain((int)roundf(fracao * 100.0f), 0, 100);
+
+  if (percentual != soloPercentual || !soloValido) {
     soloPercentual = percentual;
-    soloBruto = leitura;
+    soloValido = true;
     atualizarOLED = true;
-    Serial.print("Solo - ADC bruto: ");
-    Serial.print(soloBruto);
-    Serial.print(" | Umidade: ");
-    Serial.print(soloPercentual);
-    Serial.println("%");
+    Serial.printf("Solo - mV: %d | Umidade: %d%%\n", soloMv, soloPercentual);
   }
 
   pulsoSensorSoloAtivo = true;
   pulsoSensorSoloAte = millis() + DURACAO_PULSO_SENSOR_MS;
   if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
     atualizarOLED = true;
+  }
+}
+
+// ---------------- CAIXA D'ÁGUA (HC-SR04) ----------------
+// Uma medição: pulso de 10 µs no TRIG e tempo do eco no ECHO. Compensa a velocidade do som
+// pela temperatura (331,3 + 0,606·T m/s). NAN se não houver eco.
+float medirDistanciaAguaCm() {
+  digitalWrite(AGUA_TRIG_PIN, LOW);
+  delayMicroseconds(3);
+  digitalWrite(AGUA_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(AGUA_TRIG_PIN, LOW);
+  unsigned long duracao = pulseIn(AGUA_ECHO_PIN, HIGH, AGUA_TIMEOUT_US);
+  if (duracao == 0) return NAN;
+  float temp = isnan(tempExterna) ? (isnan(tempAtual) ? 20.0f : tempAtual) : tempExterna;
+  float somMs = 331.3f + 0.606f * temp;
+  return duracao * somMs / 20000.0f;  // µs * m/s -> cm, dividido por 2 (ida e volta)
+}
+
+// Não bloqueante: 5 medições espaçadas de 70 ms a cada 10 s, depois a mediana vira nível, litros e %.
+void atualizarNivelAgua() {
+  if (pingsAguaFeitos == 0 && ultimoCicloAguaEm != 0 && millis() - ultimoCicloAguaEm < INTERVALO_AGUA_MS) return;
+  if (pingsAguaFeitos > 0 && millis() - ultimoPingAguaEm < AGUA_ENTRE_PINGS_MS) return;
+  if (pingsAguaFeitos == 0) ultimoCicloAguaEm = millis();
+  ultimoPingAguaEm = millis();
+  pingsAgua[pingsAguaFeitos++] = medirDistanciaAguaCm();
+  if (pingsAguaFeitos < AGUA_PINGS) return;
+  pingsAguaFeitos = 0;
+
+  // Só medições plausíveis: fora da zona cega e no máximo 20 cm além do fundo.
+  float validas[AGUA_PINGS];
+  int n = 0;
+  for (int i = 0; i < AGUA_PINGS; i++) {
+    float d = pingsAgua[i];
+    if (!isnan(d) && d >= AGUA_DISTANCIA_MINIMA_CM && d <= AGUA_SENSOR_ATE_FUNDO_CM + 20.0f) validas[n++] = d;
+  }
+  if (n < 3) {
+    if (++aguaFalhas >= AGUA_FALHAS_PARA_INVALIDAR && !isnan(aguaPercentual)) {
+      aguaDistanciaCm = aguaNivelCm = aguaLitros = aguaPercentual = NAN;
+      atualizarOLED = true;
+      Serial.println("Caixa d'agua - sem leitura do HC-SR04 (verifique o divisor no ECHO e a alimentacao em 5 V)");
+    }
+    return;
+  }
+  aguaFalhas = 0;
+  for (int i = 1; i < n; i++) {  // mediana
+    float v = validas[i];
+    int j = i - 1;
+    while (j >= 0 && validas[j] > v) { validas[j + 1] = validas[j]; j--; }
+    validas[j + 1] = v;
+  }
+  float distancia = validas[n / 2];
+  float nivel = constrain(AGUA_SENSOR_ATE_FUNDO_CM - distancia, 0.0f, CAIXA_ALTURA_CM);
+  float litros = CAIXA_COMPRIMENTO_CM * CAIXA_LARGURA_CM * nivel / 1000.0f;
+  float percentual = constrain(litros / CAIXA_CAPACIDADE_L * 100.0f, 0.0f, 100.0f);
+
+  bool mudou = isnan(aguaLitros) || fabs(aguaLitros - litros) >= 0.5f;
+  aguaDistanciaCm = distancia;
+  aguaNivelCm = nivel;
+  aguaLitros = litros;
+  aguaPercentual = percentual;
+  if (mudou) {
+    atualizarOLED = true;
+    Serial.printf("Caixa d'agua - distancia %.1f cm | nivel %.1f cm | %.1f L (%.0f%%)\n", distancia, nivel, litros, percentual);
+  }
+
+  // Proteção da bomba: caixa abaixo de 10% desliga a irrigação na hora.
+  if (irrigacaoBloqueadaPelaAgua() && estadoReles[RELE_IRRIGACAO]) {
+    acionarRele(RELE_IRRIGACAO, false);
+    registrarEventoRele(RELE_IRRIGACAO, false, "protecao_agua");
+    salvarEstadoNaMemoria();
+    Serial.println("Irrigacao desligada: caixa d'agua abaixo de 10% (protecao da bomba)");
   }
 }
 
@@ -2284,8 +2590,11 @@ void controlarLuz(const DateTime& now) {
 
   acionarRele(RELE_LUZ, novoEstado);
 
-  if (estadoAnterior != novoEstado) {
+  // Na primeira passada depois de ligar, informa o estado da luz mesmo sem mudança.
+  static bool luzInformadaAposBoot = false;
+  if (estadoAnterior != novoEstado || !luzInformadaAposBoot) {
     registrarEventoRele(RELE_LUZ, novoEstado, modoControleLuz == LUZ_AUTOMATICA ? "automatico_luz" : "override_manual_luz");
+    luzInformadaAposBoot = true;
     atualizarOLED = true;
   }
 }
@@ -2481,7 +2790,7 @@ void registrarHistorico() {
   linha += (isnan(umidAtual) ? "" : String(umidAtual, 0)) + ",";
   linha += (isnan(tempExterna) ? "" : String(tempExterna, 1)) + ",";
   linha += (isnan(umidExterna) ? "" : String(umidExterna, 0)) + ",";
-  linha += String(soloPercentual) + ",";
+  linha += (soloValido ? String(soloPercentual) : String("")) + ",";
   linha += String(estadoReles[RELE_LUZ] ? 1 : 0) + ",";
   linha += String(modoAtual == VEGETACAO ? "vegetativo" : "floracao") + ",";
   linha += String(estadoReles[RELE_VENTILADOR] ? 1 : 0) + ",";
@@ -2569,6 +2878,10 @@ void setup() {
   }
 
   pinMode(SOIL_PIN, INPUT);
+  analogSetPinAttenuation(SOIL_PIN, ADC_11db);  // faixa de ~0 a 3,1 V (saída do sensor capacitivo)
+  pinMode(AGUA_TRIG_PIN, OUTPUT);
+  digitalWrite(AGUA_TRIG_PIN, LOW);
+  pinMode(AGUA_ECHO_PIN, INPUT);
   pinMode(BOTAO_OLED_PIN, INPUT_PULLUP);
   pinMode(BOTAO_TRV_PIN, INPUT_PULLUP);
   ultimoEstadoBotao = digitalRead(BOTAO_OLED_PIN);
@@ -2615,13 +2928,14 @@ void setup() {
   restaurarEstadoDaMemoria();
   restaurarFotoperiodoDaMemoria();
   restaurarDuracaoLuzDaMemoria();
-  restaurarAutomacoes();
+  restaurarClima();
   iniciarHistorico();
   // Informa ao dashboard os horários de luz em uso.
   registrarEventoFotoperiodo(VEGETACAO, "boot");
   registrarEventoFotoperiodo(FLORACAO, "boot");
   registrarEventoDuracaoLuz("boot");
-  for (int i = 0; i < TOTAL_AUTOMACOES; i++) registrarEventoAutomacao(automacoes[i], "boot");
+  registrarEventoClima("boot");
+  registrarEstadoInicialReles();   // estado real dos relés depois do reinício
 
   carregarConfigRede();
 #if !WOKWI_SIMULATION
@@ -2678,6 +2992,7 @@ void loop() {
   atualizarPulsoSensor();      // apaga o indicador de "sensor vivo" (interno)
   atualizarPulsoSensorExterno(); // apaga o indicador de "sensor vivo" (externo)
   atualizarSolo();             // lê umidade do solo (a cada 1s, com média)
+  atualizarNivelAgua();        // caixa d'água pelo HC-SR04 (a cada 10s, mediana de 5)
   atualizarPulsoSensorSolo();  // apaga o indicador de "sensor vivo" (solo)
   atualizarSincronizacaoHora(); // tenta NTP periodicamente até sincronizar
   atualizarConexaoWiFi();      // reconecta WiFi com backoff se cair
@@ -2702,6 +3017,6 @@ void loop() {
   DateTime now = obterAgora(); // uma única leitura de "agora" para o resto do ciclo
 
   controlarLuz(now);   // aplica fotoperíodo/override no relé de luz
-  atualizarAutomacoes(); // aquecedor e umidificador pelas faixas configuradas
+  atualizarClima();    // aquecedor e umidificador pelo VPD da fase escolhida
   renderizarOLED(now);  // só efetivamente desenha se atualizarOLED == true
 }

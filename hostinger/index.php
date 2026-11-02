@@ -16,6 +16,11 @@ $ehAdmin = auth_eh_admin();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Smart Demetra — Painel</title>
+<link rel="icon" type="image/svg+xml" href="img/smart-demetra-icone.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="img/icone-192.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<meta name="theme-color" content="#121414">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -43,7 +48,7 @@ $ehAdmin = auth_eh_admin();
     --raio-sm: 10px;
     --sombra: 0 10px 28px rgba(0, 0, 0, .38);
     --fonte: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --sidebar-w: 240px;
+    --sidebar-w: 252px;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -75,16 +80,14 @@ $ehAdmin = auth_eh_admin();
   }
   .sidebar-logo {
     display: flex; align-items: center; gap: 10px;
-    padding: 22px 20px 18px;
+    padding: 16px 14px 14px 16px;
     border-bottom: 1px solid var(--borda);
   }
-  /* Logo da marca (caule + duas folhas). */
-  .logo-marca { width: 22px; height: 25px; flex: none; overflow: visible; }
-  .logo-marca-caule { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; }
-  .logo-marca-folha { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; }
+  /* Logo da marca (img/logo.svg). */
+  .logo-marca { width: 50px; height: 48px; flex: none; display: block; }
   .sidebar-logo span {
-    font-weight: 800; font-size: 16px; letter-spacing: -.01em; color: var(--texto);
-    white-space: nowrap;
+    font-weight: 800; font-size: 22px; letter-spacing: -.02em; color: var(--texto);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
   }
   .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 14px 12px; flex: 1; }
   .nav-item {
@@ -136,7 +139,9 @@ $ehAdmin = auth_eh_admin();
     width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
     color: var(--texto); cursor: pointer; flex: none;
   }
-  .topo-mobile .topo-logo { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; }
+  .topo-mobile .topo-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 21px; letter-spacing: -.02em; min-width: 0; }
+  .topo-mobile .topo-logo .logo-marca { width: 46px; height: 45px; }
+  .topo-mobile .topo-logo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ---------------- Conteúdo ---------------- */
   .conteudo { margin-left: var(--sidebar-w); flex: 1; min-width: 0; padding: 24px; max-width: 1000px; }
@@ -206,6 +211,54 @@ $ehAdmin = auth_eh_admin();
   .barra-trilho.solo { height: 14px; border-radius: 7px; background: linear-gradient(to right, #223a4a 0%, #223a4a 43%, var(--azul) 45%, var(--azul) 65%, #223a4a 67%, #223a4a 100%); }
   .barra-marcador { position: absolute; top: -4px; width: 3px; height: 18px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,.6); left: 50%; transform: translateX(-50%); transition: left .3s ease; }
   .barra-trilho.solo .barra-marcador { top: -5px; width: 4px; height: 24px; }
+  /* Caixa d'água */
+  .barra-trilho.agua { height: 14px; border-radius: 7px; background: #1d2a30; }
+  .agua-preenchimento { height: 100%; width: 0; border-radius: 7px; background: linear-gradient(90deg, #3d7fa6, #6fb3e0); transition: width .4s ease, background-color .2s ease; }
+  .agua-preenchimento.baixo { background: linear-gradient(90deg, #a8644f, #e08a85); }
+  .agua-limite { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--red); border-radius: 1px; opacity: .85; }
+  .agua-detalhe { font-size: 12px; color: var(--muted); }
+  /* ---------------- Caixa d'água (aba) ---------------- */
+  .cx-selos { display: flex; gap: 8px; flex-wrap: wrap; margin: -8px 0 16px; }
+  .cx-selo { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borda); background: var(--card); color: var(--muted); }
+  .cx-selo i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+  .cx-selo.ok { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+  .cx-selo.aviso { color: var(--amber); border-color: rgba(232, 201, 119, .4); background: var(--amber-soft); }
+  .cx-selo svg { width: 14px; height: 14px; color: var(--accent); }
+  .cx-medida { color: var(--texto); }
+  .cx-grade { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  @media (min-width: 900px) { .cx-grade { grid-template-columns: 1.05fr 1fr; align-items: start; } }
+  .cx-tanque-card { background: var(--card); border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); padding: 16px 16px 12px; }
+  .cx-tanque { width: 100%; height: auto; display: block; max-width: 460px; margin: 0 auto; }
+  .cx-escala { font-size: 11px; fill: var(--muted); }
+  .cx-parede { fill: none; stroke: #4a524c; stroke-width: 2.5; stroke-linejoin: round; }
+  .cx-tampa { stroke: #4a524c; stroke-width: 2; stroke-dasharray: 5 5; }
+  .cx-linha-cap { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 3 4; opacity: .9; }
+  .cx-rotulo-cap { font-size: 11px; font-weight: 700; fill: var(--accent); }
+  .cx-linha-min { stroke: var(--amber); stroke-width: 1.4; stroke-dasharray: 3 4; opacity: .9; }
+  .cx-rotulo-min-bg { fill: #121414; stroke: rgba(232, 201, 119, .5); }
+  .cx-rotulo-min { font-size: 11px; font-weight: 700; fill: var(--amber); }
+  .cx-pct { font-size: 34px; font-weight: 800; fill: #eef1ee; letter-spacing: -.01em; paint-order: stroke; stroke: rgba(18, 20, 20, .35); stroke-width: 3px; }
+  .cx-sem { font-size: 15px; font-weight: 700; fill: var(--muted); }
+  .cx-legenda { text-align: center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .cx-volume { background: var(--card); border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); padding: 16px; }
+  .cx-volume.ok { border-color: var(--accent-line); background: linear-gradient(160deg, rgba(76, 175, 80, .06), transparent 55%), var(--card); }
+  .cx-volume.baixo { border-color: rgba(232, 201, 119, .5); }
+  .cx-volume.vazio { border-color: rgba(224, 138, 133, .6); }
+  .cx-volume-topo { display: flex; align-items: center; justify-content: space-between; }
+  .cx-volume-topo span { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .cx-volume-topo .card-icone { width: 32px; height: 32px; }
+  .cx-valor { margin: 10px 0 8px; font-size: 40px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .cx-valor small { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+  .cx-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+  .cx-indicadores { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .cx-ind { background: var(--card2); border-radius: 12px; padding: 11px 13px; }
+  .cx-ind span { display: block; font-size: 12px; color: var(--muted); }
+  .cx-ind strong { display: block; font-size: 17px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .cx-bloqueio { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--red-soft); color: var(--red); font-size: 12.5px; font-weight: 700; }
+  .cx-bloqueio svg { width: 16px; height: 16px; flex: none; }
+  .cx-grafico { margin-top: 14px; }
+  .barra-link { font-size: 12px; font-weight: 700; color: var(--accent); text-decoration: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+  .barra-link svg { width: 14px; height: 14px; }
   .barra-rodape { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 10px; flex-wrap: wrap; }
   .barra-escala { display: flex; flex: 1; font-size: 11px; color: var(--muted); min-width: 200px; }
   .barra-escala span { flex: 1; text-align: center; }
@@ -439,6 +492,68 @@ $ehAdmin = auth_eh_admin();
   .auto-ctrl button:disabled { opacity: .35; cursor: default; }
   .auto-ctrl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .auto-card .cmd-confirmacao { margin-top: -4px; }
+  /* Clima por VPD (aba Comandos) */
+  .vpd-desc { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: -8px; }
+  .vpd-fases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .vpd-fase { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 10px; border-radius: 12px; border: 1px solid var(--borda); background: var(--card2); font-family: inherit; color: var(--texto); text-align: left; cursor: pointer; }
+  .vpd-fase svg { width: 15px; height: 15px; color: var(--muted); }
+  .vpd-fase strong { font-size: 13px; font-weight: 700; }
+  .vpd-fase small { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vpd-fase.ativa { border-color: var(--accent-line); background: var(--accent-soft); }
+  .vpd-fase.ativa svg, .vpd-fase.ativa small { color: var(--accent); }
+  .vpd-medidor { background: var(--card2); border: 1px solid var(--borda); border-radius: 12px; padding: 11px 12px 10px; }
+  .vpd-medidor-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .vpd-medidor-topo span { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .vpd-medidor-topo strong { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .vpd-medidor-topo strong small { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 3px; }
+  .vpd-estado { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 3px 9px; }
+  .vpd-estado.alto { background: var(--amber-soft); color: var(--amber); }
+  .vpd-barra { position: relative; height: 10px; border-radius: 999px; background: linear-gradient(90deg, #7fa9c2 0%, #3a4a52 30%, #2f3632 50%, #4d4430 75%, #e8a05c 100%); opacity: .9; }
+  .vpd-alvo { position: absolute; top: -3px; bottom: -3px; border-radius: 6px; border: 2px solid var(--accent); background: rgba(76,175,80,.22); }
+  .vpd-centro { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--accent); opacity: .7; }
+  .vpd-agora { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #eef1ee; border: 3px solid #121414; box-shadow: 0 0 0 2px var(--amber); }
+  .vpd-escala { position: relative; height: 14px; margin-top: 8px; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vpd-escala span { position: absolute; transform: translateX(-50%); }
+  .vpd-lados { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .vpd-leituras { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--borda); }
+  .vpd-leituras b { color: var(--texto); font-weight: 700; }
+  .vpd-equip { display: flex; flex-direction: column; gap: 6px; }
+  .vpd-eq { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; background: var(--card2); border: 1px solid transparent; }
+  .vpd-eq.on { border-color: rgba(232,201,119,.4); }
+  .vpd-eq-icone { width: 32px; height: 32px; border-radius: 10px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .vpd-eq-icone svg { width: 16px; height: 16px; }
+  .vpd-eq-texto { flex: 1; min-width: 0; }
+  .vpd-eq-texto strong { display: block; font-size: 13px; font-weight: 700; }
+  .vpd-eq-texto strong small { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--muted); margin-left: 6px; text-transform: uppercase; }
+  .vpd-eq-texto span { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 1px; }
+  .vpd-pill { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 4px 9px; flex: none; background: var(--borda); color: var(--muted); }
+  .vpd-pill.on { background: var(--amber-soft); color: var(--amber); }
+  .vpd-regra { font-size: 11.5px; color: var(--muted); line-height: 1.5; background: var(--bg); border: 1px dashed var(--borda); border-radius: 10px; padding: 8px 10px; }
+  .vpd-regra b { color: var(--texto); }
+  .vpd-ponto { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--texto); opacity: .35; border-radius: 1px; }
+  .vpd-ajustes-btn { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--borda); background: none; font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--texto); cursor: pointer; }
+  .vpd-ajustes-btn span { display: flex; align-items: center; gap: 8px; }
+  .vpd-ajustes-btn svg { width: 15px; height: 15px; color: var(--muted); }
+  .vpd-ajustes-btn small { font-weight: 600; color: var(--muted); font-size: 11.5px; }
+  .vpd-ajustes { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; border: 1px solid var(--borda); background: var(--bg); }
+  .vpd-ajustes h5 { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .vpd-ajustes p { margin: -4px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+  .vpd-ajustes .auto-passo { padding: 8px; }
+  .auto-faixa.vpd-trava { grid-template-columns: 1fr; }
+  .vpd-ajustes .auto-ctrl { gap: 4px; }
+  .vpd-ajustes .auto-ctrl strong { font-size: 13.5px; }
+  .vpd-ajustes .auto-ctrl button { width: 28px; height: 28px; }
+  .vpd-escala span:last-child { transform: translateX(-100%); }
+  .vpd-restaurar { align-self: flex-start; font-family: inherit; font-size: 12px; font-weight: 700; color: var(--muted); background: none; border: none; padding: 0; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .vpd-restaurar svg { width: 13px; height: 13px; }
+  .vpd-estado { background: var(--borda); color: var(--muted); }
+  .vpd-estado.baixo { background: var(--azul-soft); color: var(--azul); }
+  .vpd-estado.ok { background: var(--accent-soft); color: var(--accent); }
+  .vpd-agora.baixo { box-shadow: 0 0 0 2px var(--azul); }
+  .vpd-agora.ok { box-shadow: 0 0 0 2px var(--accent); }
+  .vpd-icone { background: var(--accent-soft) !important; color: var(--accent) !important; }
+  .vpd-fase:disabled { cursor: wait; opacity: .7; }
+  .vpd-card .cmd-confirmacao { margin-top: -4px; }
   .rele-card .rele-icone.aceso { background: var(--amber-soft); color: var(--amber); }
   .rele-chip {
     font-family: inherit; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
@@ -750,7 +865,20 @@ $ehAdmin = auth_eh_admin();
           <div class="barra-escala"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
         </div>
         <div class="barra-status"><span class="pill pill-neutro" id="soloStatusPill">--</span></div>
-        <p class="barra-nota" id="soloNota" hidden>O sensor enviou 0% nas &uacute;ltimas 3 leituras. Verifique o cabo e a conex&atilde;o do sensor de solo.</p>
+        <p class="barra-nota" id="soloNota" hidden>O sensor de solo n&atilde;o respondeu nas &uacute;ltimas 3 leituras. Verifique o cabo e a alimenta&ccedil;&atilde;o do sensor capacitivo.</p>
+      </div>
+
+      <div class="barra-card esconder-offline" id="aguaCard">
+        <div class="barra-topo">
+          <span class="barra-titulo"><svg data-lucide="glass-water"></svg>Caixa d&apos;&aacute;gua (70 L)</span>
+          <span class="barra-valor skeleton" id="aguaValor">-- L</span>
+        </div>
+        <div class="barra-trilho agua"><div class="agua-preenchimento" id="aguaPreenchimento"></div><div class="agua-limite" id="aguaLimite" title="Alerta de n&iacute;vel baixo"></div></div>
+        <div class="barra-rodape">
+          <div class="barra-escala"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+        </div>
+        <div class="barra-status"><span class="pill pill-neutro" id="aguaStatusPill">--</span><span class="agua-detalhe" id="aguaDetalhe"></span><a class="barra-link" href="#caixa" data-ir-aba="caixa">Detalhes<svg data-lucide="arrow-right"></svg></a></div>
+        <p class="barra-nota" id="aguaNota" hidden>O sensor da caixa d&apos;&aacute;gua (HC-SR04) n&atilde;o respondeu nas &uacute;ltimas 3 leituras. Verifique a alimenta&ccedil;&atilde;o em 5 V e o divisor de tens&atilde;o no pino ECHO.</p>
       </div>
     </div>
 
@@ -773,6 +901,52 @@ $ehAdmin = auth_eh_admin();
           <span style="font-size:12px;color:var(--muted);">toque no interruptor para ligar/desligar</span>
         </div>
         <div class="rele-grid" id="cmdReles"></div>
+      </div>
+    </div>
+
+    <!-- ===================== ABA: CAIXA D'ÁGUA ===================== -->
+    <div class="aba" id="aba-caixa">
+      <h1 class="titulo-aba">Caixa d&apos;&aacute;gua</h1>
+      <p class="subtitulo-aba">N&iacute;vel da caixa medido pelo sensor ultrass&ocirc;nico (HC-SR04) na tampa.</p>
+      <div class="cx-selos">
+        <span class="cx-selo" id="cxVivo"><i></i>Aguardando o sensor</span>
+        <span class="cx-selo cx-medida"><svg data-lucide="ruler"></svg>66 &times; 36 &times; 35 cm &middot; 70 L</span>
+      </div>
+
+      <div class="cx-grade">
+        <div class="cx-tanque-card">
+          <div id="cxTanque"></div>
+          <div class="cx-legenda">Escala em litros &middot; a linha verde marca a capacidade de uso</div>
+        </div>
+
+        <div class="cx-volume" id="cxVolume">
+          <div class="cx-volume-topo"><span>Volume agora</span><div class="card-icone"><svg data-lucide="glass-water" style="width:16px;height:16px;"></svg></div></div>
+          <div class="cx-valor"><span id="cxLitros">--</span><small>de 70 L</small></div>
+          <div class="cx-status"><span class="pill pill-neutro" id="cxPill">--</span><span id="cxAviso">Aviso abaixo de 20% (14 L)</span></div>
+          <div class="barra-trilho agua"><div class="agua-preenchimento" id="cxPreenchimento"></div><div class="agua-limite" id="cxLimite" title="Aviso de n&iacute;vel baixo"></div></div>
+          <div class="barra-rodape"><div class="barra-escala"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div></div>
+          <div class="cx-indicadores">
+            <div class="cx-ind"><span>Altura da &aacute;gua</span><strong id="cxAltura">—</strong></div>
+            <div class="cx-ind"><span>Falta para encher</span><strong id="cxFalta">—</strong></div>
+            <div class="cx-ind"><span>Varia&ccedil;&atilde;o em 24 h</span><strong id="cxVariacao">—</strong></div>
+            <div class="cx-ind"><span>&Uacute;ltima leitura</span><strong id="cxUltima">—</strong></div>
+          </div>
+          <div class="cx-bloqueio" id="cxBloqueio" hidden><svg data-lucide="shield-alert"></svg>Irriga&ccedil;&atilde;o bloqueada para proteger a bomba (caixa abaixo de 10%).</div>
+        </div>
+      </div>
+
+      <div class="grafico-card cx-grafico">
+        <h2>Volume nas &uacute;ltimas 24 horas (litros)</h2>
+        <div class="grafico-wrap">
+          <div class="grafico-skeleton skeleton" id="graficoCaixaSkeleton"></div>
+          <canvas id="graficoCaixa"></canvas>
+          <div class="grafico-erro" id="graficoCaixaMsg" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div class="auto-nota">
+        <svg data-lucide="info"></svg>
+        <div>Caixa de paredes retas, 66 &times; 36 cm e 35 cm de altura: 70 L ficam a cerca de 29,5 cm do fundo (100%). Abaixo de 10% o ESP32 bloqueia o rel&eacute; de irriga&ccedil;&atilde;o para proteger a bomba. O aviso de caixa baixa &eacute; ajustado em <a href="#configuracoes" data-ir-aba="configuracoes" style="color:var(--accent);">Configura&ccedil;&otilde;es</a>.</div>
       </div>
     </div>
 
@@ -815,6 +989,15 @@ $ehAdmin = auth_eh_admin();
           <div class="grafico-skeleton skeleton" id="graficoSoloSkeleton"></div>
           <canvas id="graficoSolo"></canvas>
           <div class="grafico-erro" id="graficoSoloMsg" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div class="grafico-card">
+        <h2>Caixa d&apos;&aacute;gua (litros)</h2>
+        <div class="grafico-wrap">
+          <div class="grafico-skeleton skeleton" id="graficoAguaSkeleton"></div>
+          <canvas id="graficoAgua"></canvas>
+          <div class="grafico-erro" id="graficoAguaMsg" style="display:none;"></div>
         </div>
       </div>
 
@@ -970,6 +1153,7 @@ $ehAdmin = auth_eh_admin();
                 <option value="relogio">Rel&oacute;gio de eventos</option>
                 <option value="fotoperiodo">Fotoper&iacute;odo</option>
                 <option value="comandos">Comandos</option>
+                <option value="caixa">Caixa d&apos;&aacute;gua</option>
                 <option value="historico">Hist&oacute;rico</option>
               </select>
             </div>
@@ -999,6 +1183,10 @@ $ehAdmin = auth_eh_admin();
 
         <div class="cfg-grupo">
           <div class="cfg-grupo-titulo"><svg data-lucide="bell-ring"></svg>Faixas de alerta</div>
+          <div class="cfg-linha">
+            <div class="cfg-texto"><strong>Caixa d&apos;&aacute;gua baixa</strong><small>Abaixo deste n&iacute;vel a barra da caixa fica em alerta e o Telegram avisa (capacidade de 70 L).</small></div>
+            <div class="cfg-controle"><span>abaixo de</span><input type="number" name="agua_alerta_min" min="0" max="90" step="1"><span>%</span></div>
+          </div>
           <div class="cfg-linha">
             <div class="cfg-texto"><strong>Umidade do solo ideal</strong><small>Usada na barra do solo da p&aacute;gina In&iacute;cio.</small></div>
             <div class="cfg-controle"><input type="number" name="solo_ideal_min" min="0" max="100" step="1"><span>a</span><input type="number" name="solo_ideal_max" min="0" max="100" step="1"><span>%</span></div>
@@ -1141,7 +1329,7 @@ $ehAdmin = auth_eh_admin();
 const sidebar = document.getElementById('sidebar');
 const overlay = document.getElementById('sidebarOverlay');
 const btnHamburger = document.getElementById('btnHamburger');
-const ABAS_VALIDAS = ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'historico', 'dispositivo', 'configuracoes'];
+const ABAS_VALIDAS = ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'caixa', 'historico', 'dispositivo', 'configuracoes'];
 
 function abrirSidebar() { sidebar.classList.add('aberta'); overlay.classList.add('visivel'); document.body.classList.add('menu-aberto'); }
 function fecharSidebar() { sidebar.classList.remove('aberta'); overlay.classList.remove('visivel'); document.body.classList.remove('menu-aberto'); }
@@ -1158,9 +1346,10 @@ function mudarAba(aba) {
   fecharSidebar();
   try { history.replaceState(null, '', '#' + aba); } catch (e) { /* ignora */ }
   // Chart.js precisa recalcular o tamanho ao reaparecer.
-  if (aba === 'historico') { setTimeout(() => { [graficoTemperatura, graficoUmidade, graficoSolo, graficoVpd].forEach(g => { if (g) g.resize(); }); }, 0); }
+  if (aba === 'historico') { setTimeout(() => { [graficoTemperatura, graficoUmidade, graficoSolo, graficoAgua, graficoVpd].forEach(g => { if (g) g.resize(); }); }, 0); }
   if (aba === 'relogio') renderizarRoda();
   if (aba === 'fotoperiodo') renderizarFotoperiodo();
+  if (aba === 'caixa') { renderizarCaixa(); setTimeout(() => { if (graficoCaixa) graficoCaixa.resize(); }, 0); }
   if (aba === 'dispositivo') carregarDispositivo().catch(e => console.warn('dispositivo:', e.message));
   window.scrollTo(0, 0);
 }
@@ -1183,6 +1372,7 @@ let CONFIG = {
   pagina_inicial: 'inicio',
   intervalo_atualizacao_seg: '60',
   periodo_padrao_historico: '24h',
+  agua_alerta_min: '20',
   solo_ideal_min: '50',
   solo_ideal_max: '60',
   temp_alerta_min: '18',
@@ -1215,7 +1405,8 @@ function fmtSolo(v) { return (v === null || v === undefined) ? '--' : Number(v).
 
 function tirarEsqueleto(id) { const el = document.getElementById(id); if (el) el.classList.remove('skeleton'); }
 
-// Solo "sem leitura": 0% exato nas últimas 3 leituras (sensor solto ou sem contato).
+// Solo "sem leitura": sem valor (null) nas últimas 3 leituras. O firmware 2.7.0 (sensor capacitivo v1.2)
+// manda null quando o sensor está solto ou sem alimentação; 0% agora é solo seco de verdade.
 let soloSemLeitura = false;
 
 function atualizarSoloBarra(soloPercentual) {
@@ -1245,6 +1436,178 @@ function atualizarSoloBarra(soloPercentual) {
   if (v < soloMin) { pillEl.textContent = 'Seco — considere regar'; pillEl.className = 'pill pill-warn'; }
   else if (v <= soloMax) { pillEl.textContent = 'Ideal'; pillEl.className = 'pill pill-ok'; }
   else { pillEl.textContent = 'Encharcado'; pillEl.className = 'pill pill-alert'; }
+}
+
+// Caixa d'água (HC-SR04): paredes retas, 66 x 36 cm de base = 2,376 L por cm de água; 70 L = 100% (≈ 29,5 cm).
+const CAIXA_CAPACIDADE_L = 70;
+const CAIXA_LITROS_POR_CM = 66 * 36 / 1000;
+let aguaSemLeitura = false;
+function atualizarAguaBarra(leitura) {
+  const valorEl = document.getElementById('aguaValor');
+  if (!valorEl) return;
+  const fill = document.getElementById('aguaPreenchimento'), pill = document.getElementById('aguaStatusPill');
+  const detalhe = document.getElementById('aguaDetalhe'), nota = document.getElementById('aguaNota');
+  const limite = Math.max(0, Math.min(90, Number(CONFIG.agua_alerta_min) || 20));
+  document.getElementById('aguaLimite').style.left = limite + '%';
+  tirarEsqueleto('aguaValor');
+  nota.hidden = !aguaSemLeitura;
+  const litros = leitura && leitura.agua_litros !== null && leitura.agua_litros !== undefined ? Number(leitura.agua_litros) : null;
+  const pct = leitura && leitura.agua_percentual !== null && leitura.agua_percentual !== undefined ? Number(leitura.agua_percentual)
+    : (litros !== null ? Math.min(100, litros / CAIXA_CAPACIDADE_L * 100) : null);
+  if (litros === null || pct === null || isNaN(litros)) {
+    valorEl.textContent = '-- L';
+    fill.style.width = '0%';
+    pill.textContent = aguaSemLeitura ? 'Sensor sem leitura' : 'Aguardando o sensor';
+    pill.className = 'pill ' + (aguaSemLeitura ? 'pill-warn' : 'pill-neutro');
+    detalhe.textContent = aguaSemLeitura ? '' : 'disponível a partir do firmware 2.7.0';
+    return;
+  }
+  valorEl.textContent = brN(litros, 1) + ' L · ' + Math.round(pct) + '%';
+  fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  fill.classList.toggle('baixo', pct < limite);
+  if (pct < 10) { pill.textContent = 'Quase vazia — reabasteça'; pill.className = 'pill pill-alert'; }
+  else if (pct < limite) { pill.textContent = 'Nível baixo — reabasteça'; pill.className = 'pill pill-warn'; }
+  else if (pct >= 95) { pill.textContent = 'Cheia'; pill.className = 'pill pill-ok'; }
+  else { pill.textContent = 'Nível ok'; pill.className = 'pill pill-ok'; }
+  detalhe.textContent = '≈ ' + brN(litros / CAIXA_LITROS_POR_CM, 1) + ' cm de água · faltam ' + brN(Math.max(0, CAIXA_CAPACIDADE_L - litros), 1) + ' L para encher';
+}
+
+/* ==================== Caixa d'água (aba) ==================== */
+// Caixa de paredes retas 66 x 36 x 35 cm; 70 L = 100% (≈ 29,5 cm de água). Abaixo de 10% o ESP32 bloqueia a irrigação.
+const CAIXA_ALTURA_CM = 35;
+const CAIXA_TOTAL_L = CAIXA_LITROS_POR_CM * CAIXA_ALTURA_CM;   // até a borda (≈ 83 L)
+const CAIXA_PROTECAO_PCT = 10;
+let graficoCaixa = null;
+
+function leiturasComAgua() { return leituras24h.filter(l => l.agua_litros !== null && l.agua_litros !== undefined && l.agua_litros !== ''); }
+function msLeitura(l) { return new Date(String(l.dispositivo_timestamp || l.criado_em || '').replace(' ', 'T')).getTime(); }
+function percentualDaLeitura(l) {
+  if (l.agua_percentual !== null && l.agua_percentual !== undefined) return Number(l.agua_percentual);
+  return Math.min(100, Number(l.agua_litros) / CAIXA_CAPACIDADE_L * 100);
+}
+// Percentual atual da caixa (ou null), usado também para bloquear a irrigação nos Comandos.
+function caixaPercentualAtual() {
+  const l = ultimaLeitura;
+  if (!l || l.agua_litros === null || l.agua_litros === undefined) return null;
+  return percentualDaLeitura(l);
+}
+
+function svgTanque(litros, pct, limitePct) {
+  const W = 320, x0 = 50, x1 = 306, yTop = 14, yBot = 286, H = yBot - yTop;
+  const y = L => yBot - Math.max(0, Math.min(CAIXA_TOTAL_L, L)) / CAIXA_TOTAL_L * H;
+  const baixo = pct !== null && pct < limitePct;
+  const corA = baixo ? '#e08a85' : '#6fb3e0', corB = baixo ? '#a8644f' : '#3d7fa6';
+  let s = '<svg class="cx-tanque" viewBox="0 0 ' + W + ' 300" role="img" aria-label="Desenho da caixa d\'água com ' + (litros === null ? 'nível desconhecido' : brN(litros, 1) + ' litros') + '">' +
+    '<defs><linearGradient id="cxAgua" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + corA + '" stop-opacity=".95"/><stop offset="1" stop-color="' + corB + '" stop-opacity=".9"/></linearGradient>' +
+    '<clipPath id="cxClip"><rect x="' + x0 + '" y="' + yTop + '" width="' + (x1 - x0) + '" height="' + H + '" rx="10"/></clipPath></defs>';
+  // escala em litros
+  [0, 20, 40, 60, 80].forEach(v => {
+    const yy = y(v);
+    s += '<text x="' + (x0 - 10) + '" y="' + (yy + 4).toFixed(1) + '" text-anchor="end" class="cx-escala">' + v + ' L</text>';
+  });
+  // fundo e água
+  s += '<rect x="' + x0 + '" y="' + yTop + '" width="' + (x1 - x0) + '" height="' + H + '" rx="10" fill="#1a1f1e"/>';
+  if (litros !== null) {
+    const yw = y(litros), amp = litros > 1 ? 3 : 0, passos = 4, larg = (x1 - x0) / passos;
+    let d = 'M ' + x0 + ' ' + yw.toFixed(1);
+    for (let i = 0; i < passos; i++) {
+      const xa = x0 + i * larg;
+      d += ' Q ' + (xa + larg / 4).toFixed(1) + ' ' + (yw - amp).toFixed(1) + ' ' + (xa + larg / 2).toFixed(1) + ' ' + yw.toFixed(1) +
+           ' T ' + (xa + larg).toFixed(1) + ' ' + yw.toFixed(1);
+    }
+    d += ' L ' + x1 + ' ' + yBot + ' L ' + x0 + ' ' + yBot + ' Z';
+    s += '<path d="' + d + '" fill="url(#cxAgua)" clip-path="url(#cxClip)"/>';
+  }
+  // capacidade (70 L) e mínimo
+  const yCap = y(CAIXA_CAPACIDADE_L), yMin = y(CAIXA_CAPACIDADE_L * limitePct / 100);
+  s += '<line x1="' + x0 + '" y1="' + yCap.toFixed(1) + '" x2="' + x1 + '" y2="' + yCap.toFixed(1) + '" class="cx-linha-cap"/>' +
+       '<text x="' + (x1 - 10) + '" y="' + (yCap - 6).toFixed(1) + '" text-anchor="end" class="cx-rotulo-cap">70 L</text>' +
+       '<line x1="' + x0 + '" y1="' + yMin.toFixed(1) + '" x2="' + x1 + '" y2="' + yMin.toFixed(1) + '" class="cx-linha-min"/>' +
+       '<rect x="' + (x1 - 78) + '" y="' + (yMin - 21).toFixed(1) + '" width="70" height="17" rx="8.5" class="cx-rotulo-min-bg"/>' +
+       '<text x="' + (x1 - 43) + '" y="' + (yMin - 9).toFixed(1) + '" text-anchor="middle" class="cx-rotulo-min">mín. ' + limitePct + '%</text>';
+  // paredes (tampa tracejada, onde fica o sensor)
+  s += '<path d="M ' + x0 + ' ' + yTop + ' L ' + x0 + ' ' + (yBot - 10) + ' Q ' + x0 + ' ' + yBot + ' ' + (x0 + 10) + ' ' + yBot +
+       ' L ' + (x1 - 10) + ' ' + yBot + ' Q ' + x1 + ' ' + yBot + ' ' + x1 + ' ' + (yBot - 10) + ' L ' + x1 + ' ' + yTop + '" class="cx-parede"/>' +
+       '<line x1="' + x0 + '" y1="' + yTop + '" x2="' + x1 + '" y2="' + yTop + '" class="cx-tampa"/>';
+  // percentual
+  if (pct !== null) {
+    // dentro da água quando há espaço; com pouca água, no meio do espaço vazio (longe da linha do mínimo)
+    const yw = y(litros), dentro = yBot - yw > 56;
+    const yTexto = dentro ? (yw + yBot) / 2 + 11 : (Math.min(yw, yMin) + yCap) / 2 + 11;
+    s += '<text x="' + ((x0 + x1) / 2) + '" y="' + yTexto.toFixed(1) + '" text-anchor="middle" class="cx-pct">' + Math.round(pct) + '%</text>';
+  } else {
+    s += '<text x="' + ((x0 + x1) / 2) + '" y="' + ((yTop + yBot) / 2) + '" text-anchor="middle" class="cx-sem">sem leitura</text>';
+  }
+  return s + '</svg>';
+}
+
+function renderizarCaixa() {
+  const aba = document.getElementById('aba-caixa');
+  if (!aba) return;
+  const com = leiturasComAgua();
+  const ult = com.length ? com[com.length - 1] : null;
+  const ultimaGeral = leituras24h.length ? leituras24h[leituras24h.length - 1] : null;
+  const limite = Math.max(0, Math.min(90, Number(CONFIG.agua_alerta_min) || 20));
+  const atual = ultimaGeral && ultimaGeral.agua_litros !== null && ultimaGeral.agua_litros !== undefined ? ultimaGeral : null;
+  const litros = atual ? Number(atual.agua_litros) : null;
+  const pct = atual ? percentualDaLeitura(atual) : null;
+
+  // selos do topo
+  const vivo = document.getElementById('cxVivo');
+  const minSemDados = Number(CONFIG.dispositivo_sem_dados_min) || 5;
+  if (atual && Date.now() - msLeitura(atual) <= minSemDados * 60000) {
+    vivo.className = 'cx-selo ok'; vivo.innerHTML = '<i></i>Ao vivo · ' + hhmmDeMs(msLeitura(atual));
+  } else if (ult) {
+    vivo.className = 'cx-selo aviso'; vivo.innerHTML = '<i></i>Última leitura há ' + formatarDuracao(Date.now() - msLeitura(ult));
+  } else {
+    vivo.className = 'cx-selo'; vivo.innerHTML = '<i></i>Aguardando o sensor';
+  }
+
+  document.getElementById('cxTanque').innerHTML = svgTanque(litros, pct, limite);
+
+  // volume agora
+  const card = document.getElementById('cxVolume');
+  const pill = document.getElementById('cxPill');
+  card.classList.remove('ok', 'baixo', 'vazio');
+  document.getElementById('cxLimite').style.left = limite + '%';
+  document.getElementById('cxAviso').textContent = 'Aviso abaixo de ' + limite + '% (' + brN(CAIXA_CAPACIDADE_L * limite / 100, 0) + ' L)';
+  const bloqueio = document.getElementById('cxBloqueio');
+  if (litros === null) {
+    document.getElementById('cxLitros').textContent = '--';
+    pill.className = 'pill pill-neutro';
+    pill.textContent = ult ? 'Sensor sem leitura' : 'Aguardando o sensor';
+    document.getElementById('cxPreenchimento').style.width = '0%';
+    ['cxAltura', 'cxFalta', 'cxVariacao'].forEach(id => { document.getElementById(id).textContent = '—'; });
+    document.getElementById('cxUltima').textContent = ult ? hhmmDeMs(msLeitura(ult)) : '—';
+    bloqueio.hidden = true;
+  } else {
+    document.getElementById('cxLitros').textContent = brN(litros, 1) + ' L';
+    const fill = document.getElementById('cxPreenchimento');
+    fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    fill.classList.toggle('baixo', pct < limite);
+    if (pct < CAIXA_PROTECAO_PCT) { pill.className = 'pill pill-alert'; pill.textContent = 'Quase vazia'; card.classList.add('vazio'); }
+    else if (pct < limite) { pill.className = 'pill pill-warn'; pill.textContent = 'Nível baixo'; card.classList.add('baixo'); }
+    else { pill.className = 'pill pill-ok'; pill.textContent = pct >= 95 ? 'Cheia' : 'Nível ok'; card.classList.add('ok'); }
+    document.getElementById('cxAltura').textContent = brN(litros / CAIXA_LITROS_POR_CM, 1) + ' cm';
+    document.getElementById('cxFalta').textContent = brN(Math.max(0, CAIXA_CAPACIDADE_L - litros), 1) + ' L';
+    const primeira = com[0];
+    const variacao = primeira ? litros - Number(primeira.agua_litros) : 0;
+    document.getElementById('cxVariacao').textContent = (variacao > 0.05 ? '+' : variacao < -0.05 ? '−' : '') + brN(Math.abs(variacao), 1) + ' L';
+    document.getElementById('cxUltima').textContent = hhmmDeMs(msLeitura(atual));
+    bloqueio.hidden = !(pct < CAIXA_PROTECAO_PCT);
+  }
+
+  // gráfico de 24 h
+  if (typeof Chart === 'undefined') return;
+  if (graficoCaixa) { graficoCaixa.destroy(); graficoCaixa = null; }
+  tirarEsqueleto('graficoCaixaSkeleton');
+  document.getElementById('graficoCaixaSkeleton').style.display = 'none';
+  if (!com.length) { mostrarMensagemGrafico('graficoCaixa', 'sem leituras da caixa d\'água nas últimas 24 horas'); return; }
+  mostrarMensagemGrafico('graficoCaixa', null);
+  graficoCaixa = montarGrafico('graficoCaixa', leituras24h, '24h', [{ label: 'Caixa d\'água (L)', campo: 'agua_litros', cor: '#6fb3e0' }], 'L', { min: 0, suggestedMax: CAIXA_CAPACIDADE_L });
+  const ds = graficoCaixa.data.datasets[0];
+  ds.fill = true; ds.backgroundColor = 'rgba(111,179,224,.12)'; ds.tension = 0.15;
+  graficoCaixa.update();
 }
 
 // VPD (kPa) — mesma fórmula do firmware.
@@ -1310,6 +1673,7 @@ let periodoAtual = '24h';
 let graficoTemperatura = null;
 let graficoUmidade = null;
 let graficoSolo = null;
+let graficoAgua = null;
 let graficoVpd = null;
 let ultimaLeitura = null;
 let leituras24h = []; // leituras das últimas 24h (detalhes das automações no relógio)
@@ -1329,13 +1693,18 @@ async function carregarResumo() {
     document.getElementById('statTempExterna').textContent = fmtTemp(ultima.temp_externa);
     document.getElementById('statUmidExterna').textContent = fmtUmid(ultima.umid_externa);
     const ultimas3 = linhas.slice(-3);
-    soloSemLeitura = ultimas3.length === 3 && ultimas3.every(l => l.solo_percentual !== null && Number(l.solo_percentual) === 0);
+    soloSemLeitura = ultimas3.length === 3 && ultimas3.every(l => l.solo_percentual === null);
+    aguaSemLeitura = ultimas3.length === 3 && linhas.some(l => l.agua_litros !== null && l.agua_litros !== undefined) && ultimas3.every(l => l.agua_litros === null || l.agua_litros === undefined);
     document.getElementById('statSolo').textContent = soloSemLeitura ? '—' : fmtSolo(ultima.solo_percentual);
     atualizarVPD(ultima.temp_interna, ultima.umid_interna);
     atualizarSoloBarra(ultima.solo_percentual);
     ultimaLeitura = ultima;
+    atualizarAguaBarra(ultima);
     aplicarAlertasCards(ultima);
+    // o card da irrigação depende do nível da caixa (proteção da bomba)
+    if (ultimoTodosComandos.length) renderizarBotoesReles(ultimoTodosComandos);
   }
+  if (abaAtual === 'caixa') renderizarCaixa();
 }
 
 function formatarRotuloTempo(linha, periodo) {
@@ -1385,20 +1754,24 @@ async function carregarGraficos(periodo) {
   if (graficoTemperatura) { graficoTemperatura.destroy(); graficoTemperatura = null; }
   if (graficoUmidade) { graficoUmidade.destroy(); graficoUmidade = null; }
   if (graficoSolo) { graficoSolo.destroy(); graficoSolo = null; }
+  if (graficoAgua) { graficoAgua.destroy(); graficoAgua = null; }
   if (graficoVpd) { graficoVpd.destroy(); graficoVpd = null; }
   tirarEsqueleto('graficoTemperaturaSkeleton');
   tirarEsqueleto('graficoUmidadeSkeleton');
   tirarEsqueleto('graficoSoloSkeleton');
+  tirarEsqueleto('graficoAguaSkeleton');
   tirarEsqueleto('graficoVpdSkeleton');
   document.getElementById('graficoTemperaturaSkeleton').style.display = 'none';
   document.getElementById('graficoUmidadeSkeleton').style.display = 'none';
   document.getElementById('graficoSoloSkeleton').style.display = 'none';
+  document.getElementById('graficoAguaSkeleton').style.display = 'none';
   document.getElementById('graficoVpdSkeleton').style.display = 'none';
 
   if (linhas.length === 0) {
     mostrarMensagemGrafico('graficoTemperatura', 'sem dados nesse periodo ainda');
     mostrarMensagemGrafico('graficoUmidade', 'sem dados nesse periodo ainda');
     mostrarMensagemGrafico('graficoSolo', 'sem dados nesse periodo ainda');
+    mostrarMensagemGrafico('graficoAgua', 'sem dados nesse periodo ainda');
     mostrarMensagemGrafico('graficoVpd', 'sem dados nesse periodo ainda');
     return;
   }
@@ -1420,6 +1793,15 @@ async function carregarGraficos(periodo) {
   graficoSolo = montarGrafico('graficoSolo', linhas, periodo, [
     { label: 'Solo (%)', campo: 'solo_percentual', cor: '#b98d5e' },
   ], '%', { min: 0, max: 100 });
+
+  if (linhas.some(l => l.agua_litros !== null && l.agua_litros !== undefined)) {
+    mostrarMensagemGrafico('graficoAgua', null);
+    graficoAgua = montarGrafico('graficoAgua', linhas, periodo, [
+      { label: 'Caixa d\'água (L)', campo: 'agua_litros', cor: '#6fb3e0' },
+    ], 'litros', { min: 0, suggestedMax: CAIXA_CAPACIDADE_L });
+  } else {
+    mostrarMensagemGrafico('graficoAgua', 'sem leituras da caixa d\'água nesse período (sensor a partir do firmware 2.7.0)');
+  }
 
   // Leituras antigas sem VPD gravado: calcula aqui.
   linhas.forEach(l => {
@@ -1553,6 +1935,7 @@ function formatarDuracao(ms) {
   if (min < 1) return 'agora mesmo';
   if (min < 60) return min + ' min';
   const h = Math.floor(min / 60), m = min % 60;
+  if (h >= 24) { const d = Math.floor(h / 24), hr = h % 24; return d + (d === 1 ? ' dia' : ' dias') + (hr ? ' ' + hr + 'h' : ''); }
   return h + 'h' + (m > 0 ? String(m).padStart(2, '0') + 'min' : '');
 }
 function corDoEvento(c) {
@@ -1570,7 +1953,7 @@ function descricaoEvento(c) {
   if (c.tipo === 'acesso') return 'Acesso liberado';
   if (c.tipo === 'notificacao') {
     if (c.alvo === 'telegram') return 'Telegram ' + (c.valor === 'conectado' ? 'conectado' : 'desconectado');
-    const nome = { temperatura: 'temperatura', umidade: 'umidade', solo: 'solo', vpd: 'VPD', offline: 'dispositivo offline', timer: 'timer não confirmado', resumo: 'resumo diário', teste: 'teste' }[c.alvo] || c.alvo;
+    const nome = { temperatura: 'temperatura', umidade: 'umidade', solo: 'solo', agua: 'caixa d\'água baixa', vpd: 'VPD', offline: 'dispositivo offline', timer: 'timer não confirmado', resumo: 'resumo diário', teste: 'teste' }[c.alvo] || c.alvo;
     if (c.valor === 'falhou') return 'Falha ao enviar aviso no Telegram (' + nome + ')';
     if (c.valor === 'normalizado') return 'Telegram: ' + nome + ' normalizado';
     return 'Aviso no Telegram: ' + nome;
@@ -1622,7 +2005,7 @@ function duracaoCompacta(ms) { const m = Math.max(0, Math.round(ms / 60000)); re
 function duracaoCurta(ms) { const t = formatarDuracao(ms); return t === 'agora mesmo' ? 'menos de 1 min' : t; }
 function origemCurta(origem) {
   return ({ automacao: 'Automático', automatico_luz: 'Automático', retomou_automatico: 'Automático', web: 'Painel', manual: 'Botão do OLED',
-    botao: 'Botão', pausa_painel: 'Painel', pausa_oled: 'Botão do OLED', sistema: 'Sistema', servidor: 'Servidor', telegram: 'Telegram', boot: 'Ao ligar' })[origem] || origem || '—';
+    botao: 'Botão', protecao_agua: 'Proteção da bomba', bloqueio_agua: 'Proteção da bomba', pausa_painel: 'Painel', pausa_oled: 'Botão do OLED', sistema: 'Sistema', servidor: 'Servidor', telegram: 'Telegram', boot: 'Ao ligar' })[origem] || origem || '—';
 }
 function htmlOrigem(origem) {
   const t = origemCurta(origem);
@@ -1704,7 +2087,11 @@ function construirItensRoda() {
     if (usados.has(c)) return;
     const ms = msEvento(c);
     let item = null;
-    if (c.tipo === 'automacao') {
+    if (c.tipo === 'clima_vpd') {
+      const pausa = String(c.origem || '').indexOf('pausa') === 0;
+      const rel = pausa ? ultimoTodosComandos.find(x => x.tipo === 'rele' && (x.alvo === 'Aquecedor' || x.alvo === 'Umidificador') && x.origem !== 'automacao' && Math.abs(msEvento(x) - ms) <= 2 * 60000) : null;
+      item = { categoria: 'automacoes', foco: null, cor: RODA_COR.auto, icone: pausa ? 'pause' : 'gauge', vazado: pausa, ...textoClima(c, rel) };
+    } else if (c.tipo === 'automacao') {
       const a = automacaoPorChave(c.alvo);
       const rel = a && String(c.origem || '').indexOf('pausa') === 0
         ? ultimoTodosComandos.find(x => x.tipo === 'rele' && x.alvo === a.rele && x.origem !== 'automacao' && Math.abs(msEvento(x) - ms) <= 2 * 60000) : null;
@@ -1743,10 +2130,17 @@ function itemPeriodo(anel, aberto, evFim, fimMs) {
   const nome = RELE_ROTULO[anel.rele] || anel.rele;
   const ini = aberto.ms, ate = fimMs === null ? Date.now() : fimMs;
   const dur = duracaoCurta(ate - ini);
-  const campo = a ? a.campoLeitura : null;
-  const vIni = campo ? leituraEm(campo, ini) : null;
-  const vFim = campo ? (fimMs === null ? (ultimaLeitura ? Number(ultimaLeitura[campo]) : null) : leituraEm(campo, fimMs)) : null;
-  const leituras = (vIni !== null && vFim !== null) ? fmtGrandeza(campo, vIni) + ' → ' + fmtGrandeza(campo, vFim) : '';
+  // ciclos do clima por VPD mostram o VPD; registros antigos, a temperatura ou a umidade
+  const climaNoInicio = climaEm(ini);
+  const cfgClima = aberto.ev.origem === 'automacao' ? climaNoInicio : null;
+  const campo = climaNoInicio ? 'vpd' : (a ? a.campoLeitura : null);
+  const lidaIni = campo === 'vpd' && !aberto.cortado ? leituraDaAcao(aberto.ev) : null;
+  const lidaFim = campo === 'vpd' && evFim ? leituraDaAcao(evFim) : null;
+  const vIni = campo === 'vpd' ? (lidaIni && lidaIni.vpd !== null ? lidaIni.vpd : vpdEm(ini)) : (campo ? leituraEm(campo, ini) : null);
+  const vFim = campo === 'vpd' ? (fimMs === null ? vpdDeLeitura(ultimaLeitura) : (lidaFim && lidaFim.vpd !== null ? lidaFim.vpd : vpdEm(fimMs)))
+    : (campo ? (fimMs === null ? (ultimaLeitura ? Number(ultimaLeitura[campo]) : null) : leituraEm(campo, fimMs)) : null);
+  const leituras = (vIni !== null && vFim !== null)
+    ? (campo === 'vpd' ? 'VPD ' + brN(vIni, 2) + ' → ' + brN(vFim, 2) + ' kPa' : fmtGrandeza(campo, vIni) + ' → ' + fmtGrandeza(campo, vFim)) : '';
   const auto = aberto.ev.origem === 'automacao';
   const sub = fimMs === null
     ? htmlOrigem(aberto.ev.origem) + ' · ' + escapeHtml(dur) + ' · em andamento'
@@ -1754,7 +2148,7 @@ function itemPeriodo(anel, aberto, evFim, fimMs) {
   return {
     id: 'a|' + anel.rele + '|' + ini, tipo: 'periodo', categoria: 'equipamentos', foco: anel.rele, anel, cor: anel.cor, icone: anel.icone,
     inicioMs: ini, fimMs, eventos: [aberto.ev].concat(evFim ? [evFim] : []), auto, cortado: aberto.cortado,
-    titulo: nome + ' ligado' + (fimMs === null ? '' : ' por ' + dur), subHtml: sub, leituras, campo, evIni: aberto.ev, evFim,
+    titulo: nome + ' ligado' + (fimMs === null ? '' : ' por ' + dur), subHtml: sub, leituras, campo, cfgClima, evIni: aberto.ev, evFim,
   };
 }
 
@@ -1869,7 +2263,13 @@ function desenharRoda(itens, modoAtual) {
   // ontem: esmaece o trecho entre agora e a meia-noite (é o dia anterior no relógio de 24h)
   if (horaAgora < 23.9) {
     svg.appendChild(svgEl('path', { d: arco(128, horaAgora + 0.05, 24), fill: 'none', stroke: '#121414', 'stroke-width': 72, opacity: 0.62, 'pointer-events': 'none' }));
-    const pl = pt(86, horaAgora + (24 - horaAgora) / 2);
+    // rótulo no meio do trecho de ontem, mas longe do texto do centro (fica acima ou abaixo dele)
+    let hRot = horaAgora + (24 - horaAgora) / 2;
+    for (let d = 0; d <= (24 - horaAgora) / 2; d += 0.1) {
+      const h = [hRot - d, hRot + d].find(x => x > horaAgora + 0.5 && x < 23.5 && Math.abs(pt(86, x).y - cy) >= 55);
+      if (h !== undefined) { hRot = h; break; }
+    }
+    const pl = pt(86, hRot);
     const t = svgEl('text', { x: pl.x.toFixed(2), y: pl.y.toFixed(2), 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-size': '9.5', 'font-weight': '700', fill: '#8a938e', 'letter-spacing': '.08em', 'pointer-events': 'none' });
     t.textContent = 'ONTEM';
     if (24 - horaAgora > 1.2) svg.appendChild(t);
@@ -1913,9 +2313,30 @@ function desenharRoda(itens, modoAtual) {
 function linhasDetalhe(it) {
   const L = [];
   if (it.tipo === 'periodo') {
-    if (it.leituras) L.push([it.campo === 'temp_interna' ? 'Temperatura' : 'Umidade', it.leituras]);
+    if (it.leituras) L.push([it.campo === 'vpd' ? 'Leituras' : it.campo === 'temp_interna' ? 'Temperatura' : 'Umidade', it.leituras]);
     const a = automacaoDoRele(it.anel.rele);
-    if (it.auto && a) {
+    if (it.auto && it.cfgClima) {
+      const cf = it.cfgClima, centro = (cf.min + cf.max) / 2;
+      // firmware 2.7.2: só o umidificador, desligando no mínimo; registros antigos (até 2.7.1) desligavam no meio da faixa
+      // firmware 2.7.3: liga e desliga dentro da faixa (motivos ponto_*/teto/piso)
+      const motivoIni = it.evIni ? (leituraDaAcao(it.evIni) || {}).motivo : '', motivoFim = it.evFim ? (leituraDaAcao(it.evFim) || {}).motivo : '';
+      const novo = it.evFim || it.evIni ? ['ponto_ligar', 'ponto_desligar', 'teto', 'piso'].includes(motivoIni) || ['ponto_ligar', 'ponto_desligar', 'teto', 'piso'].includes(motivoFim) : true;
+      const desligouNoMinimo = it.evFim ? motivoFim === 'vpd_min' : true;
+      const pc = pontosClima(cf);
+      L.push(['Regra', it.anel.rele === 'Aquecedor' ? 'liga abaixo de ' + brN(cf.min, 2) + ' · desliga em ' + brN(centro, 2)
+        : novo ? 'liga em ' + brN(pc.liga, 2) + ' · desliga em ' + brN(pc.desliga, 2) + ' (sempre dentro da faixa)'
+        : 'liga acima de ' + brN(cf.max, 2) + ' · desliga em ' + brN(desligouNoMinimo ? cf.min : centro, 2)]);
+      L.push(['Fase do clima', faseClima(cf.fase).nome + ' · ' + brN(cf.min, 2) + '–' + brN(cf.max, 2) + ' kPa']);
+      // motivo real de cada ação, com a leitura do sensor (firmware 2.6.1)
+      const acao = (ev, rotulo) => {
+        const lida = ev ? leituraDaAcao(ev) : null;
+        if (!lida) return;
+        const sensor = [lida.temp !== null ? brN(lida.temp, 1) + ' °C' : '', lida.umid !== null ? Math.round(lida.umid) + '%' : ''].filter(Boolean).join(' · ');
+        L.push([rotulo, (MOTIVO_CLIMA[lida.motivo] ? MOTIVO_CLIMA[lida.motivo](cf) : lida.motivo) + (sensor ? ' · ' + sensor + ' no sensor' : '')]);
+      };
+      if (!it.cortado) acao(it.evIni, 'Ligou');
+      if (it.evFim && it.evFim.origem === 'automacao') acao(it.evFim, 'Desligou');
+    } else if (it.auto && a) {
       const f = faixaAutomacaoEm(a, it.inicioMs);
       L.push(['Regra', a.rotuloMin.toLowerCase() + ' ' + fmtAuto(a, f.min) + ' · ' + a.rotuloMax.toLowerCase() + ' ' + fmtAuto(a, f.max)]);
     } else {
@@ -2033,18 +2454,35 @@ document.addEventListener('click', ev => {
 });
 
 async function carregarRodaEventos() {
-  const d = await buscarJson('comandos.php?limite=300');
+  const d = await buscarJson('comandos.php?limite=500');
   const todos = d.dados || [];
+  // Completa com o último registro de cada relé e da porta que ficou fora da janela de linhas
+  // (o ventilador, por exemplo, muda pouco e sairia da lista, aparecendo como "sem registro").
+  relesEstado = d.reles || {};
+  Object.keys(relesEstado).forEach(alvo => {
+    if (!todos.some(c => c.tipo === 'rele' && c.alvo === alvo)) todos.push(relesEstado[alvo]);
+  });
+  if (d.ultimo_acesso && !todos.some(c => c.tipo === 'acesso')) todos.push(d.ultimo_acesso);
   const modoAtual = d.modo_atual === 'floracao' ? 'floracao' : 'vegetativo';
   automacoesEsp = d.automacoes || {};
-  resolverPendenciasAutomacao();
+  climaEsp = d.clima || null;
+  resolverPendenciaClima();
 
   modoAtualParaLuz = modoAtual;
   ultimoTodosComandos = todos;
 
   const agora = Date.now();
-  const eventosHoje = todos.filter(c => {
-    const ehAutomacao = c.tipo === 'automacao' && c.origem !== 'boot'; // o boot só reconfirma a configuração
+  const eventosHoje = todos.filter((c, i) => {
+    // Ao ligar, o ESP32 reconfirma o estado de cada relé; se nada mudou, não é um evento.
+    if (c.tipo === 'rele' && c.origem === 'boot') {
+      const anterior = todos.slice(i + 1).find(x => x.tipo === 'rele' && x.alvo === c.alvo);
+      if (anterior && anterior.valor === c.valor) return false;
+      // registro anterior fora da janela: o "desde" do servidor diz se o estado já vinha de antes
+      const r = relesEstado[c.alvo];
+      const desde = r && r.desde ? new Date(String(r.desde).replace(' ', 'T')).getTime() : NaN;
+      if (!anterior && r && r.valor === c.valor && desde < msEvento(c)) return false;
+    }
+    const ehAutomacao = (c.tipo === 'automacao' || c.tipo === 'clima_vpd') && c.origem !== 'boot'; // o boot só reconfirma a configuração
     if (!ehAutomacao && c.tipo !== 'acesso' && c.tipo !== 'alerta' && c.tipo !== 'fase' && c.tipo !== 'notificacao' && !(c.tipo === 'rele' && RELES_NA_RODA.includes(c.alvo))) return false;
     const ts = timestampEvento(c);
     if (!ts) return false;
@@ -2065,7 +2503,7 @@ async function carregarRodaEventos() {
 }
 
 /* ==================== Comandos (botões) ==================== */
-const RELES_CONTROLAVEIS = ['Umidificador', 'Ventilador', 'Irrigacao', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
+const RELES_CONTROLAVEIS = ['Irrigacao', 'Ventilador', 'Umidificador', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
 const RELE_ICONE = {
   'Umidificador': 'droplets',
   'Ventilador': 'fan',
@@ -2105,7 +2543,7 @@ let ultimoModoCmd = 'vegetativo';
 
 function duracaoDesde(registro) {
   if (!registro) return '';
-  const desde = new Date(String(timestampEvento(registro)).replace(' ', 'T')).getTime();
+  const desde = registro.tipo === 'rele' ? inicioEstadoRele(registro.alvo, registro) : new Date(String(timestampEvento(registro)).replace(' ', 'T')).getTime();
   if (isNaN(desde)) return '';
   const dur = formatarDuracao(Date.now() - desde);
   return dur === 'agora mesmo' ? dur : 'há ' + dur;
@@ -2143,15 +2581,365 @@ function renderizarControles(todosComandos) {
     '</div>'
   );
 
-  AUTOMACOES.forEach(a => cards.push(htmlCardAutomacao(a, todosComandos)));
+  cards.push(htmlCardClima(todosComandos));
 
   container.innerHTML = cards.join('');
   renderizarBotoesReles(todosComandos);
 }
 
-/* ==================== Automações (aquecedor e umidade) ==================== */
-// A lógica roda no ESP32 (atualizarAutomacoes()); o painel só envia a faixa e liga/desliga.
-// Comando: tipo "automacao", alvo = chave, valor "ativa;min;max".
+/* ==================== Clima por VPD (aquecedor + umidificador) ==================== */
+// A lógica roda no ESP32 (atualizarClima()); o painel escolhe a fase, a faixa e as travas.
+// Comando: tipo "clima_vpd", alvo "clima", valor "ativa;fase;min;max;travaTemp;travaUmid;minLigado;minDesligado"
+// (fase 0 muda, 1 vegetação, 2 floração; tempos mínimos em minutos). O ESP32 controla pela média de 1 min.
+// A faixa de cada fase fica nas configurações (vpd_muda_*, vpd_vegetativo_*, vpd_floracao_*), as mesmas dos alertas de VPD.
+const FASES_CLIMA = [
+  { chave: 'muda', indice: 0, nome: 'Muda', icone: 'sprout', padrao: [0.4, 0.8] },
+  { chave: 'vegetativo', indice: 1, nome: 'Vegetação', icone: 'leaf', padrao: [0.8, 1.2] },
+  { chave: 'floracao', indice: 2, nome: 'Floração', icone: 'flower-2', padrao: [1.2, 1.6] },
+];
+const CLIMA_TRAVAS_PADRAO = { temp: 28, umid: 60, lig: 3, des: 3 };
+const CLIMA_ESCALA = [0.2, 2.0];
+let climaEsp = null;            // { valor, origem, quando } confirmado pelo ESP32
+let climaPendente = null;       // estado enviado e ainda não confirmado (+ ate)
+let climaRascunho = null;       // { fase, min, max, temp, umid, lig, des } em edição nos ajustes
+let climaAjustesAbertos = false;
+
+function brN(n, casas) { return Number(n).toFixed(casas).replace('.', ','); }
+// faixa de VPD: 1 casa quando o valor é redondo (1,2), 2 quando não é (1,55)
+function brFx(n) { return Math.abs(n * 10 - Math.round(n * 10)) < 1e-6 ? brN(n, 1) : brN(n, 2); }
+function faseClima(indiceOuChave) { return FASES_CLIMA.find(f => f.indice === indiceOuChave || f.chave === indiceOuChave) || FASES_CLIMA[2]; }
+function faixaDaFase(fase) {
+  const f = faseClima(fase);
+  const mn = Number(CONFIG['vpd_' + f.chave + '_min']), mx = Number(CONFIG['vpd_' + f.chave + '_max']);
+  return (isFinite(mn) && isFinite(mx) && mx > mn) ? { min: mn, max: mx } : { min: f.padrao[0], max: f.padrao[1] };
+}
+function travasConfig() {
+  const t = Number(CONFIG.clima_trava_temp), u = Number(CONFIG.clima_trava_umid);
+  const l = Number(CONFIG.clima_min_ligado), d = Number(CONFIG.clima_min_desligado);
+  return { temp: isFinite(t) && t > 0 ? t : CLIMA_TRAVAS_PADRAO.temp, umid: isFinite(u) && u > 0 ? u : CLIMA_TRAVAS_PADRAO.umid,
+    lig: l >= 1 && l <= 15 ? l : CLIMA_TRAVAS_PADRAO.lig, des: d >= 1 && d <= 15 ? d : CLIMA_TRAVAS_PADRAO.des };
+}
+// Aceita o formato do firmware 2.6.0 (6 campos, tempos de 3 min) e o do 2.6.1 (8 campos).
+function lerValorClima(valor) {
+  const p = String(valor || '').split(';');
+  if (p.length !== 6 && p.length !== 8) return null;
+  const e = { ativa: p[0] === '1', fase: Number(p[1]), min: Number(p[2]), max: Number(p[3]), travaTemp: Number(p[4]), travaUmid: Number(p[5]),
+    minLigado: p.length === 8 ? Number(p[6]) : 3, minDesligado: p.length === 8 ? Number(p[7]) : 3 };
+  return [e.fase, e.min, e.max, e.travaTemp, e.travaUmid, e.minLigado, e.minDesligado].every(isFinite) ? e : null;
+}
+function valorClima(e) {
+  return (e.ativa ? '1' : '0') + ';' + e.fase + ';' + Number(e.min).toFixed(2) + ';' + Number(e.max).toFixed(2) + ';' + Number(e.travaTemp).toFixed(1) + ';' +
+    Math.round(e.travaUmid) + ';' + Math.round(e.minLigado || 3) + ';' + Math.round(e.minDesligado || 3);
+}
+function estadoClima() {
+  if (climaPendente) return Object.assign({}, climaPendente, { pendente: true, registro: true });
+  const lido = climaEsp ? lerValorClima(climaEsp.valor) : null;
+  if (lido) return Object.assign(lido, { pendente: false, registro: true, origem: climaEsp.origem });
+  const fase = ultimoModoCmd === 'vegetativo' ? 1 : 2, f = faixaDaFase(fase), t = travasConfig();
+  return { ativa: false, fase, min: f.min, max: f.max, travaTemp: t.temp, travaUmid: t.umid, minLigado: t.lig, minDesligado: t.des, pendente: false, registro: false };
+}
+// Só o umidificador participa do clima por VPD (firmware 2.7.2); o aquecedor é um relé comum.
+function climaAtivoNoRele(nomeRele) { return nomeRele === 'Umidificador' && estadoClima().ativa; }
+function resolverPendenciaClima() {
+  if (!climaPendente) return;
+  if ((climaEsp && climaEsp.valor === valorClima(climaPendente)) || Date.now() > climaPendente.ate) climaPendente = null;
+}
+// Configuração do clima em vigor num instante (último registro até ali).
+function climaEm(ms) {
+  const reg = ultimoTodosComandos.find(c => c.tipo === 'clima_vpd' && msEvento(c) <= ms);
+  return reg ? lerValorClima(reg.valor) : null;
+}
+function vpdDeLeitura(l) {
+  if (!l) return null;
+  if (l.vpd !== null && l.vpd !== undefined && l.vpd !== '') return Number(l.vpd);
+  const t = Number(l.temp_interna), u = Number(l.umid_interna);
+  return (l.temp_interna === null || l.umid_interna === null || isNaN(t) || isNaN(u)) ? null : calcularVPD(t, u);
+}
+function vpdEm(ms) {
+  let melhor = null, dist = Infinity;
+  leituras24h.forEach(l => {
+    const t = new Date(String(l.criado_em || l.dispositivo_timestamp || '').replace(' ', 'T')).getTime();
+    const v = vpdDeLeitura(l);
+    if (isNaN(t) || v === null) return;
+    const d = Math.abs(t - ms);
+    if (d < dist) { dist = d; melhor = v; }
+  });
+  return dist <= 5 * 60 * 1000 ? melhor : null;
+}
+function fmtVpd(v) { return v === null || v === undefined || isNaN(v) ? '—' : brN(v, 2) + ' kPa'; }
+
+function htmlPassoClima(campo, rotulo, valor, podeMenos, podeMais, mudou) {
+  return '<div class="auto-passo' + (mudou ? ' alterado' : '') + '"><span class="auto-rotulo">' + rotulo + '</span><div class="auto-ctrl">' +
+    '<button type="button" data-clima-passo="' + campo + '" data-delta="-1" aria-label="Diminuir ' + rotulo.toLowerCase() + '"' + (podeMenos ? '' : ' disabled') + '><svg data-lucide="minus"></svg></button>' +
+    '<strong>' + valor + '</strong>' +
+    '<button type="button" data-clima-passo="' + campo + '" data-delta="1" aria-label="Aumentar ' + rotulo.toLowerCase() + '"' + (podeMais ? '' : ' disabled') + '><svg data-lucide="plus"></svg></button></div></div>';
+}
+
+function htmlCardClima(todosComandos) {
+  const est = estadoClima();
+  const fase = faseClima(est.fase);
+  const leitura = ultimaLeitura;
+  const vpd = vpdDeLeitura(leitura);
+  const temp = leitura && leitura.temp_interna !== null ? Number(leitura.temp_interna) : null;
+  const umid = leitura && leitura.umid_interna !== null ? Number(leitura.umid_interna) : null;
+  const pc = pontosClima(est);
+  const pos = v => ((Math.min(Math.max(v, CLIMA_ESCALA[0]), CLIMA_ESCALA[1]) - CLIMA_ESCALA[0]) / (CLIMA_ESCALA[1] - CLIMA_ESCALA[0]) * 100).toFixed(1);
+
+  // fases
+  const fases = FASES_CLIMA.map(f => {
+    const fx = faixaDaFase(f.indice);
+    return '<button type="button" class="vpd-fase' + (f.indice === est.fase ? ' ativa' : '') + '" data-clima-fase="' + f.indice + '" aria-pressed="' + (f.indice === est.fase) + '"' + (est.pendente ? ' disabled' : '') + '>' +
+      '<svg data-lucide="' + f.icone + '"></svg><strong>' + f.nome + '</strong><small>' + brFx(fx.min) + '–' + brFx(fx.max) + ' kPa</small></button>';
+  }).join('');
+
+  // medidor
+  let selo = '<span class="vpd-estado">sem leitura</span>', classeAgora = '';
+  if (vpd !== null) {
+    if (vpd < est.min) { selo = '<span class="vpd-estado baixo">abaixo da faixa · ar úmido</span>'; classeAgora = ' baixo'; }
+    else if (vpd > est.max) { selo = '<span class="vpd-estado alto">acima da faixa · ar seco</span>'; classeAgora = ' alto'; }
+    else { selo = '<span class="vpd-estado ok">dentro da faixa</span>'; classeAgora = ' ok'; }
+  }
+  const escala = [0.4, 0.8, 1.2, 1.6, 2.0].map(v => '<span style="left:' + pos(v) + '%">' + brN(v, 1) + '</span>').join('');
+  const medidor = '<div class="vpd-medidor"><div class="vpd-medidor-topo"><div><span>VPD agora</span><br><strong>' + (vpd === null ? '—' : brN(vpd, 2)) + '<small>kPa</small></strong></div>' + selo + '</div>' +
+    '<div class="vpd-barra"><div class="vpd-alvo" style="left:' + pos(est.min) + '%;width:' + (pos(est.max) - pos(est.min)).toFixed(1) + '%"></div>' +
+    '<div class="vpd-ponto" style="left:' + pos(pc.desliga) + '%" title="desliga em ' + brN(pc.desliga, 2) + '"></div><div class="vpd-ponto" style="left:' + pos(pc.liga) + '%" title="liga em ' + brN(pc.liga, 2) + '"></div>' +
+    (vpd === null ? '' : '<div class="vpd-agora' + classeAgora + '" style="left:' + pos(vpd) + '%"></div>') + '</div>' +
+    '<div class="vpd-escala">' + escala + '</div><div class="vpd-lados"><span>← úmido (VPD baixo)</span><span>seco (VPD alto) →</span></div>' +
+    '<div class="vpd-leituras"><span>Temperatura <b>' + (temp === null ? '—' : brN(temp, 1) + ' °C') + '</b></span><span>Umidade <b>' + (umid === null ? '—' : Math.round(umid) + '%') + '</b></span>' +
+    '<span>Alvo <b>' + brN(est.min, 2) + '–' + brN(est.max, 2) + '</b></span></div></div>';
+
+  // equipamentos
+  const linhaEquip = (nome, icone, cor, sobe) => {
+    const reg = ultimoRegistroRele(todosComandos, nome);
+    const ligado = !!reg && reg.valor === 'ligado';
+    const ha = reg ? formatarDuracao(Date.now() - inicioEstadoRele(nome, reg)) : '';
+    let texto;
+    if (!est.ativa) texto = 'Desce o VPD · clima desativado';
+    else if (umid !== null && umid >= est.travaUmid) texto = 'Trava: ' + Math.round(umid) + '% (máx. ' + Math.round(est.travaUmid) + '%)';
+    else if (ligado) {
+      const faltam = reg ? Math.ceil(est.minLigado - (Date.now() - inicioEstadoRele(nome, reg)) / 60000) : 0;
+      texto = 'Umidificando · ligado ' + (ha === 'agora mesmo' ? 'agora' : 'há ' + ha) +
+        (faltam > 0 ? ' (mínimo ' + est.minLigado + ' min)' : '') + ', desliga quando o VPD chegar em ' + brN(pc.desliga, 2);
+    }
+    else texto = 'Desligado até o VPD chegar em ' + brN(pc.liga, 2) + (ha && ha !== 'agora mesmo' ? ' · há ' + ha : '');
+    return '<div class="vpd-eq' + (ligado ? ' on' : '') + '"><div class="vpd-eq-icone" style="background:' + corSuave(cor) + ';color:' + cor + '"><svg data-lucide="' + icone + '"></svg></div>' +
+      '<div class="vpd-eq-texto"><strong>' + nome + '<small>Relé ' + RELE_NUMERO[nome] + '</small></strong><span>' + escapeHtml(texto) + '</span></div>' +
+      '<span class="vpd-pill' + (ligado ? ' on' : '') + '">' + (ligado ? 'Ligado' : 'Desligado') + '</span></div>';
+  };
+  const equip = '<div class="vpd-equip">' + linhaEquip('Umidificador', 'droplets', '#6fb3e0', false) + '</div>';
+  const regra = '<div class="vpd-regra">O VPD fica sempre dentro da faixa <b>' + brN(est.min, 2) + '–' + brN(est.max, 2) + '</b>: o umidificador liga em <b>' + brN(pc.liga, 2) + '</b>, antes do máximo, ' +
+    'e desliga em <b>' + brN(pc.desliga, 2) + '</b>, antes do mínimo. Se chegar perto de uma borda (<b>' + brN(pc.teto, 2) + '</b> ou <b>' + brN(pc.piso, 2) + '</b>), age na hora, sem esperar o tempo mínimo. Trava: umidificador até <b>' + Math.round(est.travaUmid) + '%</b>. ' +
+    'Fica no mínimo <b>' + est.minLigado + ' min</b> ligado e <b>' + est.minDesligado + ' min</b> desligado; o controle usa a média de 1 min, então picos de névoa no sensor não contam. ' +
+    'O aquecedor não participa.</div>';
+
+  // ajustes (faixa da fase e travas)
+  let ajustes;
+  if (climaAjustesAbertos) {
+    const fx = faixaDaFase(est.fase), tv = travasConfig();
+    const r = climaRascunho && climaRascunho.fase === est.fase ? climaRascunho : { fase: est.fase, min: fx.min, max: fx.max, temp: tv.temp, umid: tv.umid, lig: tv.lig, des: tv.des };
+    const alterado = r.min !== fx.min || r.max !== fx.max || r.temp !== tv.temp || r.umid !== tv.umid || r.lig !== tv.lig || r.des !== tv.des;
+    ajustes = '<button type="button" class="vpd-ajustes-btn" data-clima-ajustes aria-expanded="true"><span><svg data-lucide="sliders-horizontal"></svg>Faixa e travas de segurança</span><svg data-lucide="chevron-up"></svg></button>' +
+      '<div class="vpd-ajustes"><h5>Faixa da ' + (fase.indice === 0 ? 'muda' : fase.indice === 1 ? 'vegetação' : 'floração') + '</h5>' +
+      '<div class="auto-faixa">' +
+        htmlPassoClima('min', 'Mínimo', brN(r.min, 2) + ' kPa', r.min - 0.05 >= 0.2 - 1e-9, r.min + 0.05 <= r.max - 0.1 + 1e-9, r.min !== fx.min) +
+        htmlPassoClima('max', 'Máximo', brN(r.max, 2) + ' kPa', r.max - 0.05 >= r.min + 0.1 - 1e-9, r.max + 0.05 <= 2.5 + 1e-9, r.max !== fx.max) +
+      '</div><p>Cada fase guarda a própria faixa (a mesma usada nos alertas de VPD).</p>' +
+      '<h5>Trava de segurança e tempo mínimo</h5><div class="auto-faixa vpd-trava">' +
+        htmlPassoClima('umid', 'Umidificador até', Math.round(r.umid) + '%', r.umid - 1 >= 30, r.umid + 1 <= 95, r.umid !== tv.umid) +
+      '</div><p>O umidificador nunca passa dessa umidade, mesmo com o VPD perto do máximo.</p>' +
+      '<div class="auto-faixa">' +
+        htmlPassoClima('lig', 'Ligado no mínimo', r.lig + ' min', r.lig - 1 >= 1, r.lig + 1 <= 15, r.lig !== tv.lig) +
+        htmlPassoClima('des', 'Desligado no mínimo', r.des + ' min', r.des - 1 >= 1, r.des + 1 <= 15, r.des !== tv.des) +
+      '</div><p>Evita o liga/desliga curto. A trava, a falta de sensor e o VPD perto das bordas da faixa agem na hora.</p>' +
+      '<button type="button" class="vpd-restaurar" data-clima-restaurar><svg data-lucide="rotate-ccw"></svg>Restaurar padrão da ' + fase.nome.toLowerCase() + '</button></div>' +
+      (alterado ? '<div class="cmd-confirmacao"><span>Ajuste não salvo</span><button type="button" class="cmd-confirmar-nao" data-clima-cancelar>Cancelar</button><button type="button" class="cmd-confirmar-sim" data-clima-salvar>Salvar</button></div>' : '');
+  } else {
+    ajustes = '<button type="button" class="vpd-ajustes-btn" data-clima-ajustes aria-expanded="false"><span><svg data-lucide="sliders-horizontal"></svg>Faixa e travas de segurança</span>' +
+      '<span><small>até ' + Math.round(est.travaUmid) + '% · mín. ' + est.minLigado + '/' + est.minDesligado + ' min</small><svg data-lucide="chevron-down"></svg></span></button>';
+  }
+
+  // rodapé
+  let titulo, detalhe;
+  if (est.pendente) { titulo = est.ativa ? 'Aplicando…' : 'Desativando…'; detalhe = 'aguardando o ESP32'; }
+  else if (est.ativa) { titulo = 'Ativa'; detalhe = 'alvo da ' + fase.nome.toLowerCase() + ' · ' + brFx(est.min) + '–' + brFx(est.max) + ' kPa'; }
+  else if (est.registro && String(est.origem || '').indexOf('pausa') === 0) { titulo = 'Pausada'; detalhe = 'comando manual no umidificador'; }
+  else { titulo = 'Desativada'; detalhe = est.registro ? 'toque para ativar' : 'sem registro do ESP32'; }
+
+  return '<div class="rele-card largo auto-card vpd-card' + (est.ativa ? ' liberado' : '') + (est.pendente ? ' pendente' : '') + '" id="cardVpd">' +
+    '<div class="rele-card-topo"><div class="rele-icone vpd-icone"><svg data-lucide="gauge"></svg></div><span class="rele-num">Relé 3</span></div>' +
+    '<div class="rele-nome">Clima por VPD</div>' +
+    '<div class="vpd-desc">Escolha a fase e o ESP32 controla o umidificador: liga antes do VPD chegar no máximo e desliga antes do mínimo, para ele ficar sempre dentro da faixa.</div>' +
+    '<div class="vpd-fases">' + fases + '</div>' + medidor + equip + regra + ajustes +
+    '<div class="rele-rodape"><div class="rele-estado"><strong>' + titulo + '</strong>' + escapeHtml(detalhe) + '</div>' +
+    '<button type="button" class="switch" role="switch" aria-checked="' + est.ativa + '" aria-label="Clima por VPD" data-clima-switch' + (est.pendente ? ' disabled' : '') + '></button></div></div>';
+}
+
+async function enviarClima(novo) {
+  climaPendente = Object.assign({}, novo, { ate: Date.now() + 90 * 1000 });
+  renderizarControles(ultimoTodosComandos);
+  const ok = await enviarComando('clima_vpd', 'clima', valorClima(novo), null);
+  if (!ok) { climaPendente = null; renderizarControles(ultimoTodosComandos); return false; }
+  [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
+  return true;
+}
+
+async function salvarAjustesClima() {
+  const est = estadoClima();
+  const r = climaRascunho;
+  if (!r) return;
+  const f = faseClima(r.fase);
+  const config = {};
+  config['vpd_' + f.chave + '_min'] = r.min.toFixed(2);
+  config['vpd_' + f.chave + '_max'] = r.max.toFixed(2);
+  config.clima_trava_temp = r.temp.toFixed(1);
+  config.clima_trava_umid = String(Math.round(r.umid));
+  config.clima_min_ligado = String(r.lig);
+  config.clima_min_desligado = String(r.des);
+  try {
+    const resp = await fetch('configuracoes.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config }) });
+    const d = await resp.json();
+    if (!d.ok) { mostrarToast(d.detalhe || ('erro: ' + (d.erro || 'desconhecido')), 'erro'); return; }
+    CONFIG = normalizarConfig(Object.assign({}, CONFIG, d.config));
+  } catch (e) { mostrarToast('falha de rede: ' + e.message, 'erro'); return; }
+  climaRascunho = null;
+  // A fase em uso recebe a faixa nova; as outras só guardam o valor para quando forem escolhidas.
+  if (r.fase === est.fase) enviarClima({ ativa: est.ativa, fase: est.fase, min: r.min, max: r.max, travaTemp: r.temp, travaUmid: r.umid, minLigado: r.lig, minDesligado: r.des });
+  else renderizarControles(ultimoTodosComandos);
+}
+
+document.addEventListener('click', ev => {
+  const bFase = ev.target.closest('[data-clima-fase]');
+  if (bFase && !bFase.disabled) {
+    const est = estadoClima(), fase = Number(bFase.dataset.climaFase);
+    if (fase === est.fase) return;
+    const fx = faixaDaFase(fase);
+    climaRascunho = null;
+    enviarClima({ ativa: est.ativa, fase, min: fx.min, max: fx.max, travaTemp: est.travaTemp, travaUmid: est.travaUmid, minLigado: est.minLigado, minDesligado: est.minDesligado });
+    return;
+  }
+  const sw = ev.target.closest('.switch[data-clima-switch]');
+  if (sw && !sw.disabled) {
+    const est = estadoClima(), fx = faixaDaFase(est.fase), tv = travasConfig();
+    // ao ativar, usa a faixa e as travas salvas no painel
+    enviarClima({ ativa: !est.ativa, fase: est.fase, min: est.ativa ? est.min : fx.min, max: est.ativa ? est.max : fx.max, travaTemp: est.ativa ? est.travaTemp : tv.temp,
+      travaUmid: est.ativa ? est.travaUmid : tv.umid, minLigado: est.ativa ? est.minLigado : tv.lig, minDesligado: est.ativa ? est.minDesligado : tv.des });
+    return;
+  }
+  if (ev.target.closest('[data-clima-ajustes]')) { climaAjustesAbertos = !climaAjustesAbertos; if (!climaAjustesAbertos) climaRascunho = null; renderizarControles(ultimoTodosComandos); return; }
+  const bPasso = ev.target.closest('[data-clima-passo]');
+  if (bPasso && !bPasso.disabled) {
+    const est = estadoClima(), fx = faixaDaFase(est.fase), tv = travasConfig();
+    const r = climaRascunho && climaRascunho.fase === est.fase ? climaRascunho : { fase: est.fase, min: fx.min, max: fx.max, temp: tv.temp, umid: tv.umid, lig: tv.lig, des: tv.des };
+    const passo = { min: 0.05, max: 0.05, temp: 0.5, umid: 1, lig: 1, des: 1 }[bPasso.dataset.climaPasso];
+    const campo = bPasso.dataset.climaPasso;
+    r[campo] = Math.round((r[campo] + Number(bPasso.dataset.delta) * passo) * 100) / 100;
+    climaRascunho = r;
+    renderizarControles(ultimoTodosComandos);
+    return;
+  }
+  if (ev.target.closest('[data-clima-cancelar]')) { climaRascunho = null; renderizarControles(ultimoTodosComandos); return; }
+  if (ev.target.closest('[data-clima-restaurar]')) {
+    const est = estadoClima(), f = faseClima(est.fase);
+    climaRascunho = { fase: est.fase, min: f.padrao[0], max: f.padrao[1], temp: CLIMA_TRAVAS_PADRAO.temp, umid: CLIMA_TRAVAS_PADRAO.umid, lig: CLIMA_TRAVAS_PADRAO.lig, des: CLIMA_TRAVAS_PADRAO.des };
+    renderizarControles(ultimoTodosComandos);
+    return;
+  }
+  if (ev.target.closest('[data-clima-salvar]')) { salvarAjustesClima(); }
+});
+
+/* ---------- Clima por VPD no relógio de eventos ---------- */
+function textoClima(c, relacionado) {
+  const v = lerValorClima(c.valor);
+  if (!v) return { titulo: 'Clima por VPD', sub: origemCurta(c.origem) };
+  const f = faseClima(v.fase);
+  const faixa = brN(v.min, 2) + '–' + brN(v.max, 2) + ' kPa';
+  const anterior = ultimoTodosComandos.find(x => x.tipo === 'clima_vpd' && msEvento(x) < msEvento(c));
+  const ant = anterior ? lerValorClima(anterior.valor) : null;
+  if (String(c.origem || '').indexOf('pausa') === 0) {
+    const acao = relacionado ? (RELE_ROTULO[relacionado.alvo] || relacionado.alvo).toLowerCase() + (relacionado.valor === 'ligado' ? ' ligado' : ' desligado') + ' manualmente' : 'comando manual';
+    return { titulo: 'Clima por VPD pausado', sub: origemCurta(c.origem) + ' · ' + acao };
+  }
+  if (!v.ativa && (!ant || ant.ativa)) return { titulo: 'Clima por VPD desativado', sub: origemCurta(c.origem) };
+  if (ant && ant.ativa === v.ativa) {
+    if (ant.fase !== v.fase) return { titulo: 'Fase do clima: ' + f.nome, sub: origemCurta(c.origem) + ' · ' + faixa };
+    if (ant.min !== v.min || ant.max !== v.max) return { titulo: 'Faixa da ' + f.nome.toLowerCase() + ' alterada', sub: origemCurta(c.origem) + ' · ' + faixa };
+    if (ant.travaTemp !== v.travaTemp || ant.travaUmid !== v.travaUmid) return { titulo: 'Travas do clima alteradas', sub: origemCurta(c.origem) + ' · até ' + brN(v.travaTemp, 1) + ' °C e ' + Math.round(v.travaUmid) + '%' };
+    if (ant.minLigado !== v.minLigado || ant.minDesligado !== v.minDesligado) return { titulo: 'Tempo mínimo do clima alterado', sub: origemCurta(c.origem) + ' · ' + v.minLigado + ' min ligado · ' + v.minDesligado + ' min desligado' };
+    if (!v.ativa) return { titulo: 'Clima por VPD ajustado (desativado)', sub: origemCurta(c.origem) + ' · ' + f.nome + ' ' + faixa };
+    return { titulo: 'Clima por VPD reconfirmado', sub: origemCurta(c.origem) + ' · ' + f.nome + ' ' + faixa };
+  }
+  return { titulo: 'Clima por VPD ' + (ant ? 'reativado' : 'ativado'), sub: origemCurta(c.origem) + ' · ' + f.nome + ' ' + faixa };
+}
+function linhasClimaConfig(c) {
+  const v = lerValorClima(c.valor);
+  if (!v) return [];
+  const centro = (v.min + v.max) / 2;
+  const L = [['Fase', faseClima(v.fase).nome], ['Faixa', brN(v.min, 2) + '–' + brN(v.max, 2) + ' kPa'],
+    ['Regra', 'umidificador liga em ' + brN(pontosClima(v).liga, 2) + ' e desliga em ' + brN(pontosClima(v).desliga, 2) + ' (sempre dentro da faixa)'],
+    ['Trava', 'umidificador até ' + Math.round(v.travaUmid) + '%'],
+    ['Tempo mínimo', v.minLigado + ' min ligado · ' + v.minDesligado + ' min desligado']];
+  const vpd = vpdEm(msEvento(c));
+  if (vpd !== null) L.push(['VPD', fmtVpd(vpd) + ' no momento']);
+  return L;
+}
+// Leitura enviada pelo ESP32 junto da ação (firmware 2.6.1): "estado;vpd;temp;umid;motivo" (média de 1 min).
+function leituraDaAcao(c) {
+  const ms = msEvento(c), estado = c.valor === 'ligado' ? '1' : '0';
+  const reg = ultimoTodosComandos.find(x => x.tipo === 'clima_leitura' && x.alvo === c.alvo && Math.abs(msEvento(x) - ms) <= 15000 && String(x.valor).charAt(0) === estado);
+  if (!reg) return null;
+  const p = String(reg.valor).split(';');
+  const n = v => (v === '' || v === undefined || isNaN(Number(v))) ? null : Number(v);
+  return { vpd: n(p[1]), temp: n(p[2]), umid: n(p[3]), motivo: p[4] || '' };
+}
+// Pontos de ação do firmware 2.7.3: o VPD fica sempre dentro da faixa.
+// Liga 25% da largura abaixo do máximo, desliga 25% acima do mínimo; a 10% das bordas age na hora.
+function pontosClima(cf) {
+  const w = cf.max - cf.min;
+  return { liga: cf.max - w * 0.25, desliga: cf.min + w * 0.25, teto: cf.max - w * 0.10, piso: cf.min + w * 0.10 };
+}
+const MOTIVO_CLIMA = {
+  ponto_ligar: cf => 'VPD chegou no ponto de ligar (' + brN(pontosClima(cf).liga, 2) + '), antes do máximo ' + brN(cf.max, 2),
+  ponto_desligar: cf => 'VPD chegou no ponto de desligar (' + brN(pontosClima(cf).desliga, 2) + '), antes do mínimo ' + brN(cf.min, 2),
+  teto: cf => 'VPD quase no máximo (' + brN(cf.max, 2) + ') — ligou na hora',
+  piso: cf => 'VPD quase no mínimo (' + brN(cf.min, 2) + ') — desligou na hora',
+  vpd_baixo: cf => 'VPD abaixo de ' + brN(cf.min, 2) + ' (ar úmido)',
+  vpd_alto: cf => 'VPD acima de ' + brN(cf.max, 2) + ' (ar seco)',
+  centro: cf => 'VPD chegou no meio da faixa (' + brN((cf.min + cf.max) / 2, 2) + ')',
+  vpd_min: cf => 'VPD chegou no mínimo da faixa (' + brN(cf.min, 2) + ')',
+  trava_temp: cf => 'trava: temperatura chegou em ' + brN(cf.travaTemp, 1) + ' °C',
+  trava_umid: cf => 'trava: umidade chegou em ' + Math.round(cf.travaUmid) + '%',
+  sem_sensor: () => 'sem leitura do sensor (segurança)',
+};
+// Motivo de uma ação automática do aquecedor/umidificador com o clima por VPD.
+function linhasAcaoClima(c, cfg) {
+  const lida = leituraDaAcao(c);
+  if (lida) {
+    const L = [];
+    if (lida.vpd !== null) L.push(['VPD (média 1 min)', fmtVpd(lida.vpd)]);
+    if (lida.temp !== null || lida.umid !== null) L.push(['No sensor', (lida.temp !== null ? brN(lida.temp, 1) + ' °C' : '—') + ' · ' + (lida.umid !== null ? Math.round(lida.umid) + '%' : '—')]);
+    L.push(['Motivo', MOTIVO_CLIMA[lida.motivo] ? MOTIVO_CLIMA[lida.motivo](cfg) : lida.motivo]);
+    L.push(['Fase do clima', faseClima(cfg.fase).nome + ' · ' + brN(cfg.min, 2) + '–' + brN(cfg.max, 2) + ' kPa']);
+    return L;
+  }
+  // firmware 2.6.0: estima pelas leituras de minuto em minuto
+  const ms = msEvento(c), ligou = c.valor === 'ligado', aquecedor = c.alvo === 'Aquecedor';
+  const centro = (cfg.min + cfg.max) / 2;
+  const vpd = vpdEm(ms), temp = leituraEm('temp_interna', ms), umid = leituraEm('umid_interna', ms);
+  const L = [];
+  if (vpd !== null) L.push(['VPD', fmtVpd(vpd)]);
+  let motivo;
+  if (ligou) motivo = aquecedor ? 'VPD abaixo de ' + brN(cfg.min, 2) + ' (ar úmido)' : 'VPD acima de ' + brN(cfg.max, 2) + ' (ar seco)';
+  else if (aquecedor && temp !== null && temp >= cfg.travaTemp) motivo = 'trava: temperatura chegou em ' + brN(cfg.travaTemp, 1) + ' °C';
+  else if (!aquecedor && umid !== null && umid >= cfg.travaUmid) motivo = 'trava: umidade chegou em ' + Math.round(cfg.travaUmid) + '%';
+  else if (vpd === null && temp === null) motivo = 'sem leitura do sensor (segurança)';
+  else motivo = 'VPD chegou no meio da faixa (' + brN(centro, 2) + ')';
+  L.push(['Motivo', motivo]);
+  L.push(['Fase do clima', faseClima(cfg.fase).nome + ' · ' + brN(cfg.min, 2) + '–' + brN(cfg.max, 2) + ' kPa']);
+  return L;
+}
+
+/* ==================== Automações antigas (firmware 2.5) ==================== */
+// Substituídas pelo clima por VPD. Ficam só para descrever registros antigos no relógio de eventos.
 const AUTOMACOES = [
   {
     chave: 'aquecedor', rele: 'Aquecedor', titulo: 'Aquecedor automático', icone: 'heater',
@@ -2166,9 +2954,7 @@ const AUTOMACOES = [
     descricao: (mn, mx) => 'Liga o umidificador abaixo de ' + mn + ' e desliga ao chegar em ' + mx + '.',
   },
 ];
-let automacoesEsp = {};       // chave -> { valor, origem, quando } confirmado pelo ESP32
-const autoPendente = {};      // chave -> { ativa, min, max, ate } enviado e não confirmado
-const autoRascunho = {};      // chave -> { min, max } em edição
+let automacoesEsp = {};       // chave -> { valor, origem, quando } (histórico)
 
 function lerValorAutomacao(valor) {
   const p = String(valor || '').split(';');
@@ -2180,92 +2966,13 @@ function lerValorAutomacao(valor) {
 function valorAutomacao(e) { return (e.ativa ? '1' : '0') + ';' + e.min.toFixed(1) + ';' + e.max.toFixed(1); }
 function fmtAuto(a, n) { return n.toFixed(a.casas).replace('.', ',') + (a.unidade === '%' ? '%' : ' ' + a.unidade); }
 
-function estadoAutomacao(a) {
-  const pend = autoPendente[a.chave];
-  if (pend) return { ...pend, pendente: true, registro: true };
-  const reg = automacoesEsp[a.chave];
-  const lido = reg ? lerValorAutomacao(reg.valor) : null;
-  if (lido) return { ...lido, pendente: false, registro: true, origem: reg.origem };
-  return { ativa: false, min: a.padrao.min, max: a.padrao.max, pendente: false, registro: false };
-}
-
-function resolverPendenciasAutomacao() {
-  AUTOMACOES.forEach(a => {
-    const pend = autoPendente[a.chave];
-    if (!pend) return;
-    const reg = automacoesEsp[a.chave];
-    if ((reg && reg.valor === valorAutomacao(pend)) || Date.now() > pend.ate) delete autoPendente[a.chave];
-  });
-}
-
 function automacaoDoRele(nomeRele) {
   return AUTOMACOES.find(a => a.rele === nomeRele) || null;
 }
 
-function htmlCardAutomacao(a, todosComandos) {
-  const est = estadoAutomacao(a);
-  const rasc = autoRascunho[a.chave];
-  const min = rasc ? rasc.min : est.min;
-  const max = rasc ? rasc.max : est.max;
-  const alterado = !!rasc && (rasc.min !== est.min || rasc.max !== est.max);
-
-  const regRele = ultimoRegistroRele(todosComandos, a.rele);
-  const releLigado = !!regRele && regRele.valor === 'ligado';
-  const leitura = ultimaLeitura ? Number(ultimaLeitura[a.campoLeitura]) : NaN;
-  const nomeRele = (RELE_ROTULO[a.rele] || a.rele).toLowerCase();
-
-  let titulo, detalhe;
-  if (est.pendente) {
-    titulo = est.ativa ? 'Ativando…' : 'Desativando…';
-    detalhe = 'aguardando o ESP32';
-  } else {
-    titulo = est.ativa ? 'Ativa' : 'Desativada';
-    const partes = [];
-    if (!isNaN(leitura) && ultimaLeitura[a.campoLeitura] !== null) partes.push('agora ' + fmtAuto(a, leitura));
-    partes.push(nomeRele + (releLigado ? ' ligado' : ' desligado'));
-    if (!est.ativa && est.registro && String(est.origem || '').indexOf('pausa') === 0) partes.push('pausada por comando manual');
-    if (!est.registro) partes.push('sem registro');
-    detalhe = partes.join(' · ');
-  }
-
-  const passo = (campo, rotulo, valor) => {
-    const podeMenos = campo === 'min' ? valor - a.passo >= a.limite[0] : valor - a.passo >= min + 1;
-    const podeMais = campo === 'min' ? valor + a.passo <= max - 1 : valor + a.passo <= a.limite[1];
-    const mudou = rasc && rasc[campo] !== est[campo];
-    return '<div class="auto-passo' + (mudou ? ' alterado' : '') + '">' +
-      '<span class="auto-rotulo">' + rotulo + '</span>' +
-      '<div class="auto-ctrl">' +
-        '<button type="button" data-auto-passo="' + a.chave + '" data-campo="' + campo + '" data-delta="-1" aria-label="Diminuir ' + rotulo.toLowerCase() + '"' + (podeMenos ? '' : ' disabled') + '><svg data-lucide="minus"></svg></button>' +
-        '<strong>' + fmtAuto(a, valor) + '</strong>' +
-        '<button type="button" data-auto-passo="' + a.chave + '" data-campo="' + campo + '" data-delta="1" aria-label="Aumentar ' + rotulo.toLowerCase() + '"' + (podeMais ? '' : ' disabled') + '><svg data-lucide="plus"></svg></button>' +
-      '</div>' +
-    '</div>';
-  };
-  const faixa = passo('min', a.rotuloMin, min) + passo('max', a.rotuloMax, max);
-
-  return '<div class="rele-card largo auto-card' + (est.ativa ? ' liberado' : '') + (est.pendente ? ' pendente' : '') + '">' +
-    '<div class="rele-card-topo">' +
-      '<div class="rele-icone' + (releLigado ? ' aceso' : '') + '"><svg data-lucide="' + a.icone + '"></svg></div>' +
-      '<span class="rele-num">Relé ' + (RELE_NUMERO[a.rele] ?? '?') + '</span>' +
-    '</div>' +
-    '<div class="rele-nome">' + a.titulo + '</div>' +
-    '<div class="auto-desc">' + a.descricao(fmtAuto(a, min), fmtAuto(a, max)) + '</div>' +
-    '<div class="auto-faixa">' + faixa + '</div>' +
-    (alterado
-      ? '<div class="cmd-confirmacao"><span>Faixa alterada' + (est.ativa ? '' : ' (a automação será ativada)') + '</span>' +
-        '<button type="button" class="cmd-confirmar-nao" data-auto-cancelar="' + a.chave + '">Cancelar</button>' +
-        '<button type="button" class="cmd-confirmar-sim" data-auto-salvar="' + a.chave + '">Salvar</button></div>'
-      : '') +
-    '<div class="rele-rodape">' +
-      '<div class="rele-estado"><strong>' + titulo + '</strong>' + escapeHtml(detalhe) + '</div>' +
-      '<button type="button" class="switch" role="switch" aria-checked="' + est.ativa + '" aria-label="' + escapeHtml(a.titulo) + '" data-auto-switch="' + a.chave + '"' + (est.pendente ? ' disabled' : '') + '></button>' +
-    '</div>' +
-  '</div>';
-}
-
 /* ---------- Automações no relógio de eventos ---------- */
 function ehEventoAutomacao(c) {
-  return c.tipo === 'automacao' || (c.tipo === 'rele' && c.origem === 'automacao');
+  return c.tipo === 'automacao' || c.tipo === 'clima_vpd' || (c.tipo === 'rele' && c.origem === 'automacao');
 }
 function msEvento(c) { return new Date(String(timestampEvento(c) || '').replace(' ', 'T')).getTime(); }
 function dataEvento(c) {
@@ -2299,6 +3006,7 @@ function leituraEm(campo, ms) {
 }
 
 function descricaoAutomacao(c) {
+  if (c.tipo === 'clima_vpd') return textoClima(c).titulo;
   if (c.tipo === 'rele') {
     return (RELE_ROTULO[c.alvo] || c.alvo) + (c.valor === 'ligado' ? ' ligado' : ' desligado') + ' pela automação';
   }
@@ -2317,6 +3025,7 @@ function descricaoAutomacao(c) {
 
 // Linhas extras do detalhe: leitura, regra aplicada e quanto tempo ficou ligado.
 function detalheAutomacao(c) {
+  if (c.tipo === 'clima_vpd') return linhasClimaConfig(c);
   const linhas = [];
   const ms = msEvento(c);
   if (c.tipo === 'automacao') {
@@ -2332,11 +3041,17 @@ function detalheAutomacao(c) {
   const a = automacaoDoRele(c.alvo);
   if (!a) return linhas;
   const ligou = c.valor === 'ligado';
-  const faixa = faixaAutomacaoEm(a, ms);
-  const leitura = leituraEm(a.campoLeitura, ms);
-  const grandeza = a.chave === 'aquecedor' ? 'Temperatura' : 'Umidade';
-  if (leitura !== null) linhas.push([grandeza, fmtAuto(a, leitura)]);
-  linhas.push(['Motivo', ligou ? 'abaixo de ' + fmtAuto(a, faixa.min) + ' (liga)' : 'chegou em ' + fmtAuto(a, faixa.max) + ' (desliga)']);
+  const cfgClima = climaEm(ms);
+  if (cfgClima && cfgClima.ativa) {
+    linhasAcaoClima(c, cfgClima).forEach(l => linhas.push(l));
+  } else {
+    // registro antigo (automação por temperatura/umidade, firmware 2.5)
+    const faixa = faixaAutomacaoEm(a, ms);
+    const leitura = leituraEm(a.campoLeitura, ms);
+    const grandeza = a.chave === 'aquecedor' ? 'Temperatura' : 'Umidade';
+    if (leitura !== null) linhas.push([grandeza, fmtAuto(a, leitura)]);
+    linhas.push(['Motivo', ligou ? 'abaixo de ' + fmtAuto(a, faixa.min) + ' (liga)' : 'chegou em ' + fmtAuto(a, faixa.max) + ' (desliga)']);
+  }
   // Próximo (ou anterior) registro do mesmo relé, de qualquer origem.
   const doRele = ultimoTodosComandos.filter(x => x.tipo === 'rele' && x.alvo === c.alvo);
   if (ligou) {
@@ -2350,47 +3065,6 @@ function detalheAutomacao(c) {
   return linhas;
 }
 
-
-async function enviarAutomacao(a, novo) {
-  autoPendente[a.chave] = { ativa: novo.ativa, min: novo.min, max: novo.max, ate: Date.now() + 90 * 1000 };
-  delete autoRascunho[a.chave];
-  renderizarControles(ultimoTodosComandos);
-  const ok = await enviarComando('automacao', a.chave, valorAutomacao(novo), null);
-  if (!ok) { delete autoPendente[a.chave]; renderizarControles(ultimoTodosComandos); return; }
-  [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
-}
-
-document.addEventListener('click', ev => {
-  const bPasso = ev.target.closest('[data-auto-passo]');
-  if (bPasso && !bPasso.disabled) {
-    const a = AUTOMACOES.find(x => x.chave === bPasso.dataset.autoPasso);
-    const est = estadoAutomacao(a);
-    const r = autoRascunho[a.chave] || { min: est.min, max: est.max };
-    const campo = bPasso.dataset.campo;
-    r[campo] = Math.round((r[campo] + Number(bPasso.dataset.delta) * a.passo) * 10) / 10;
-    autoRascunho[a.chave] = r;
-    if (r.min === est.min && r.max === est.max) delete autoRascunho[a.chave];
-    renderizarControles(ultimoTodosComandos);
-    return;
-  }
-  const bCancelar = ev.target.closest('[data-auto-cancelar]');
-  if (bCancelar) { delete autoRascunho[bCancelar.dataset.autoCancelar]; renderizarControles(ultimoTodosComandos); return; }
-
-  const bSalvar = ev.target.closest('[data-auto-salvar]');
-  if (bSalvar) {
-    const a = AUTOMACOES.find(x => x.chave === bSalvar.dataset.autoSalvar);
-    const r = autoRascunho[a.chave];
-    if (r) enviarAutomacao(a, { ativa: true, min: r.min, max: r.max });
-    return;
-  }
-  const sw = ev.target.closest('.switch[data-auto-switch]');
-  if (sw && !sw.disabled) {
-    const a = AUTOMACOES.find(x => x.chave === sw.dataset.autoSwitch);
-    const est = estadoAutomacao(a);
-    const r = autoRascunho[a.chave];
-    enviarAutomacao(a, { ativa: !est.ativa, min: r ? r.min : est.min, max: r ? r.max : est.max });
-  }
-});
 
 // Card da luz (relé 0), exibido no grupo Relés.
 function htmlCardLuz(todosComandos) {
@@ -2537,11 +3211,24 @@ document.addEventListener('click', ev => {
 
 /* ==================== Relés (aba Comandos) ==================== */
 // Número do relé na placa (índice em reles[] do firmware).
-const RELE_NUMERO = { 'Umidificador': 1, 'Ventilador': 2, 'Irrigacao': 3, 'Entrada de Ar': 4, 'Aquecedor': 5, 'Saida de Ar': 7 };
+const RELE_NUMERO = { 'Irrigacao': 1, 'Ventilador': 2, 'Umidificador': 3, 'Entrada de Ar': 4, 'Aquecedor': 5, 'Saida de Ar': 7 };
 const RELE_ROTULO = { 'Saida de Ar': 'Saída de Ar', 'Irrigacao': 'Irrigação' };
 // Comandos enviados e ainda não confirmados: nome -> { valor, ate }.
 const relesPendentes = {};
 let ultimoTodosComandos = [];
+let relesEstado = {};   // último registro de cada relé vindo do servidor (com "desde")
+
+// Quando o estado atual do relé começou. Usa o "desde" do servidor, que ignora registros repetidos
+// (ex.: o ESP32 reconfirmando o estado ao ligar), para "ligado há 12 dias" não virar "há 2 min".
+function inicioEstadoRele(nome, reg) {
+  if (!reg) return NaN;
+  const r = relesEstado[nome];
+  if (r && r.valor === reg.valor && r.desde) {
+    const t = new Date(String(r.desde).replace(' ', 'T')).getTime();
+    if (!isNaN(t) && t <= msEvento(reg)) return t;
+  }
+  return msEvento(reg);
+}
 
 function ultimoRegistroRele(todosComandos, nomeRele) {
   return todosComandos.find(c => c.tipo === 'rele' && c.alvo === nomeRele) || null;
@@ -2572,12 +3259,16 @@ function renderizarBotoesReles(todosComandos) {
       detalhe = 'sem registro';
     } else {
       titulo = ligado ? 'Ligado' : 'Desligado';
-      const desde = new Date(String(timestampEvento(ultimo)).replace(' ', 'T')).getTime();
+      const desde = inicioEstadoRele(nome, ultimo);
       const dur = isNaN(desde) ? '' : formatarDuracao(agora - desde);
       detalhe = !dur ? '' : (dur === 'agora mesmo' ? dur : 'há ' + dur);
-      const auto = automacaoDoRele(nome);
-      if (auto && estadoAutomacao(auto).ativa) detalhe = 'automático' + (detalhe ? ' · ' + detalhe : '');
+      if (climaAtivoNoRele(nome)) detalhe = 'clima por VPD' + (detalhe ? ' · ' + detalhe : '');
     }
+
+    // Proteção da bomba: com a caixa abaixo de 10% a irrigação não liga (o ESP32 também recusa).
+    const pctCaixa = nome === 'Irrigacao' ? caixaPercentualAtual() : null;
+    const bloqueada = pctCaixa !== null && pctCaixa < CAIXA_PROTECAO_PCT && !ligado;
+    if (bloqueada) { titulo = 'Bloqueada'; detalhe = 'caixa com ' + Math.round(pctCaixa) + '% · protege a bomba'; }
 
     const icone = RELE_ICONE[nome] || 'plug';
     const girando = (nome === 'Ventilador' && ligado) ? ' girando' : '';
@@ -2591,7 +3282,7 @@ function renderizarBotoesReles(todosComandos) {
       '<div class="rele-nome">' + escapeHtml(RELE_ROTULO[nome] || nome) + '</div>' +
       '<div class="rele-rodape">' +
         '<div class="rele-estado"><strong>' + titulo + '</strong>' + escapeHtml(detalhe) + '</div>' +
-        '<button type="button" class="switch" role="switch" aria-checked="' + ligado + '" aria-label="' + escapeHtml(RELE_ROTULO[nome] || nome) + '" data-rele="' + escapeHtml(nome) + '"' + (pendente ? ' disabled' : '') + '></button>' +
+        '<button type="button" class="switch" role="switch" aria-checked="' + ligado + '" aria-label="' + escapeHtml(RELE_ROTULO[nome] || nome) + '" data-rele="' + escapeHtml(nome) + '"' + (pendente || bloqueada ? ' disabled' : '') + (bloqueada ? ' title="Caixa d\'água abaixo de 10%"' : '') + '></button>' +
       '</div>';
     container.appendChild(card);
   });
@@ -2605,19 +3296,19 @@ document.addEventListener('click', async ev => {
   const novoValor = sw.getAttribute('aria-checked') === 'true' ? 'desligado' : 'ligado';
   relesPendentes[nome] = { valor: novoValor, ate: Date.now() + 90 * 1000 };
   renderizarBotoesReles(ultimoTodosComandos);
-  // Comando manual pausa a automação desse relé (o ESP32 faz o mesmo ao receber).
-  const auto = automacaoDoRele(nome);
-  const estAuto = auto ? estadoAutomacao(auto) : null;
+  // Comando manual no aquecedor/umidificador pausa o clima por VPD (o ESP32 faz o mesmo ao receber).
+  const pausaClima = climaAtivoNoRele(nome);
+  const estClima = estadoClima();
   const ok = await enviarComando('rele', nome, novoValor, null);
   if (!ok) {
     delete relesPendentes[nome];
     renderizarBotoesReles(ultimoTodosComandos);
     return;
   }
-  if (estAuto && estAuto.ativa) {
-    autoPendente[auto.chave] = { ativa: false, min: estAuto.min, max: estAuto.max, ate: Date.now() + 90 * 1000 };
+  if (pausaClima) {
+    climaPendente = Object.assign({}, estClima, { ativa: false, pendente: undefined, registro: undefined, origem: undefined, ate: Date.now() + 90 * 1000 });
     renderizarControles(ultimoTodosComandos);
-    mostrarToast('\u2713 comando enviado \u2014 automa\u00e7\u00e3o ' + (auto.chave === 'aquecedor' ? 'do aquecedor' : 'da umidade') + ' pausada', 'ok');
+    mostrarToast('\u2713 comando enviado \u2014 clima por VPD pausado', 'ok');
   }
   // Reconsulta algumas vezes até o ESP32 confirmar.
   [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
@@ -2972,7 +3663,7 @@ function aplicarConfiguracoes() {
     const a = Math.max(0, soloMin - 2), b = Math.min(100, soloMax + 2);
     trilho.style.background = 'linear-gradient(to right, #223a4a 0%, #223a4a ' + a + '%, var(--azul) ' + soloMin + '%, var(--azul) ' + soloMax + '%, #223a4a ' + b + '%, #223a4a 100%)';
   }
-  if (ultimaLeitura) { atualizarSoloBarra(ultimaLeitura.solo_percentual); aplicarAlertasCards(ultimaLeitura); }
+  if (ultimaLeitura) { atualizarSoloBarra(ultimaLeitura.solo_percentual); atualizarAguaBarra(ultimaLeitura); aplicarAlertasCards(ultimaLeitura); }
 
   atualizarPillsModo();
   if (!formConfigSujo()) preencherFormConfig();
@@ -3023,7 +3714,7 @@ function aplicarAlertasCards(leitura) {
 }
 
 const formConfig = document.getElementById('formConfig');
-const CAMPOS_CONFIG = ['nome_cultivo', 'pagina_inicial', 'intervalo_atualizacao_seg', 'periodo_padrao_historico', 'solo_ideal_min', 'solo_ideal_max', 'temp_alerta_min', 'temp_alerta_max', 'umid_alerta_min', 'umid_alerta_max', 'vpd_vegetativo_min', 'vpd_vegetativo_max', 'vpd_floracao_min', 'vpd_floracao_max', 'dispositivo_sem_dados_min'];
+const CAMPOS_CONFIG = ['nome_cultivo', 'pagina_inicial', 'intervalo_atualizacao_seg', 'periodo_padrao_historico', 'agua_alerta_min', 'solo_ideal_min', 'solo_ideal_max', 'temp_alerta_min', 'temp_alerta_max', 'umid_alerta_min', 'umid_alerta_max', 'vpd_vegetativo_min', 'vpd_vegetativo_max', 'vpd_floracao_min', 'vpd_floracao_max', 'dispositivo_sem_dados_min'];
 const ehNumerico = el => el.type === 'number' || el.hasAttribute('data-decimal');
 const paraNumero = v => parseFloat(String(v).replace(',', '.'));
 

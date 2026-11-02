@@ -211,7 +211,7 @@ function fmt_num(float $v, int $casas = 1): string
 // Chamado a cada leitura recebida (registrar_leitura.php).
 function avaliar_faixas_leitura(): void
 {
-    $l = db()->query('SELECT temp_interna, umid_interna, solo_percentual, vpd FROM leituras_ambiente ORDER BY id DESC LIMIT 1')->fetch();
+    $l = db()->query('SELECT temp_interna, umid_interna, solo_percentual, vpd, agua_litros, agua_percentual FROM leituras_ambiente ORDER BY id DESC LIMIT 1')->fetch();
     if (!$l) {
         return;
     }
@@ -229,8 +229,8 @@ function avaliar_faixas_leitura(): void
     $soloSemLeitura = db()->query("SELECT valor FROM comandos_sistema WHERE tipo = 'alerta' AND alvo = 'Solo' ORDER BY id DESC LIMIT 1")->fetchColumn() === 'sem_leitura';
 
     foreach ($faixas as [$tipo, $rotulo, $valor, $chave, $unidade, $casas]) {
-        // Solo em 0% é tratado como sensor sem leitura, não como solo seco.
-        if ($valor === null || ($tipo === 'solo' && ($soloSemLeitura || (int) $valor === 0))) {
+        // Solo sem leitura (sensor solto) não gera aviso de faixa.
+        if ($valor === null || ($tipo === 'solo' && $soloSemLeitura)) {
             continue;
         }
         $v = (float) $valor;
@@ -244,6 +244,23 @@ function avaliar_faixas_leitura(): void
             $v < $min || $v > $max,
             '⚠️ ' . $rotulo . ' ' . ($acima ? 'acima' : 'abaixo') . ' da faixa' . $sufixo . ': ' . fmt_num($v, $casas) . $unidade . ' (ideal ' . $faixa . ').',
             '✅ ' . $rotulo . ' voltou à faixa: ' . fmt_num($v, $casas) . $unidade . '.',
+            $ligado
+        );
+    }
+
+    // Caixa d'água baixa (histerese de 5 pontos para não alternar perto do limite).
+    if ($l['agua_percentual'] !== null) {
+        $pct = (int) $l['agua_percentual'];
+        $minAgua = (int) $c['agua_alerta_min'];
+        $estado = db()->prepare('SELECT em_alerta FROM notificacoes_estado WHERE tipo = ?');
+        $estado->execute(['agua']);
+        $emAlerta = (bool) $estado->fetchColumn();
+        $litros = $l['agua_litros'] !== null ? ' (' . fmt_num((float) $l['agua_litros'], 1) . ' L)' : '';
+        notificar_condicao(
+            'agua',
+            $pct < $minAgua || ($emAlerta && $pct < $minAgua + 5),
+            '💧 Caixa d\'água baixa: ' . $pct . '%' . $litros . '. Reabasteça (alerta abaixo de ' . $minAgua . '%).',
+            '✅ Caixa d\'água reabastecida: ' . $pct . '%' . $litros . '.',
             $ligado
         );
     }
@@ -299,11 +316,12 @@ function enviar_resumo_diario(bool $forcar = false): bool
     $ontem = $agora->modify('-1 day');
     $stmt = db()->prepare(
         'SELECT COUNT(*) AS n, AVG(temp_interna) AS t, MIN(temp_interna) AS tmin, MAX(temp_interna) AS tmax,
-                AVG(umid_interna) AS u, AVG(NULLIF(solo_percentual, 0)) AS s, AVG(vpd) AS v
+                AVG(umid_interna) AS u, AVG(solo_percentual) AS s, AVG(vpd) AS v,
+                (SELECT agua_litros FROM leituras_ambiente WHERE agua_litros IS NOT NULL AND COALESCE(dispositivo_timestamp, criado_em) < ? ORDER BY id DESC LIMIT 1) AS agua
          FROM leituras_ambiente
          WHERE COALESCE(dispositivo_timestamp, criado_em) >= ? AND COALESCE(dispositivo_timestamp, criado_em) < ?'
     );
-    $stmt->execute([$ontem->format('Y-m-d') . ' 00:00:00', $hoje . ' 00:00:00']);
+    $stmt->execute([$hoje . ' 00:00:00', $ontem->format('Y-m-d') . ' 00:00:00', $hoje . ' 00:00:00']);
     $r = $stmt->fetch();
     $ciclo = ciclo_atual();
     $fase = $ciclo['fase_pedida'] === 'floracao' ? 'Floração' : 'Vegetação';
@@ -322,6 +340,9 @@ function enviar_resumo_diario(bool $forcar = false): bool
         }
         if ($r['v'] !== null) {
             $linhas[] = 'VPD: ' . fmt_num((float) $r['v'], 2) . ' kPa';
+        }
+        if ($r['agua'] !== null) {
+            $linhas[] = 'Caixa d\'água no fim do dia: ' . fmt_num((float) $r['agua'], 1) . ' L';
         }
         $linhas[] = 'Leituras: ' . number_format((int) $r['n'], 0, ',', '.');
     }

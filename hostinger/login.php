@@ -96,11 +96,16 @@ function h(?string $v): string
     return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 }
 
+// Logo do Smart Demetra (img/logo.svg), no tamanho pedido.
+function logo(int $tam): string
+{
+    return '<img class="logo-marca" src="img/logo.svg" alt="" width="' . $tam . '" height="' . round($tam * 436 / 451) . '">';
+}
+
 // Ícones (traços no estilo Lucide) com stroke = currentColor.
 function ic(string $nome, int $tam = 16): string
 {
     $p = [
-        'broto' => '<path d="M12 22V9"/><path d="M12 11c0-4 3-6 8-6 0 4-3 6-8 6z"/><path d="M12 9C12 6 9.5 4 5 4c0 3 2.5 5 7 5z"/>',
         'usuario' => '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
         'cadeado' => '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
         'olho' => '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
@@ -145,6 +150,11 @@ $titulos = [
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Smart Demetra — <?= h($titulos[$tela]) ?></title>
+<link rel="icon" type="image/svg+xml" href="img/smart-demetra-icone.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="img/icone-192.png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<meta name="theme-color" content="#111613">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -189,12 +199,13 @@ $titulos = [
 
   .marca { display: flex; flex-direction: column; gap: 10px; }
   .sobrelinha { font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--verde); text-transform: uppercase; }
-  .logo { display: flex; align-items: center; gap: 10px; color: var(--verde); }
-  .logo h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--texto); }
+  .logo { display: flex; align-items: center; gap: 12px; color: var(--verde); }
+  .logo h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; color: var(--texto); }
   .marca p { margin: 0; font-size: 14px; line-height: 20px; color: var(--muted); }
 
-  .cabecalho-mini { display: flex; align-items: center; gap: 8px; color: var(--verde); }
-  .cabecalho-mini strong { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--texto); }
+  .logo-marca { display: block; flex: none; }
+  .cabecalho-mini { display: flex; align-items: center; gap: 10px; color: var(--verde); }
+  .cabecalho-mini strong { font-size: 21px; font-weight: 700; letter-spacing: -.01em; color: var(--texto); }
   .cabecalho-mini span { margin-left: auto; font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--muted); }
 
   form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
@@ -291,7 +302,8 @@ $titulos = [
 
   .carregando { display: flex; flex-direction: column; align-items: center; gap: 28px; }
   .carregando-marca { display: flex; flex-direction: column; align-items: center; gap: 16px; }
-  .carregando-icone { width: 76px; height: 76px; border-radius: 22px; background: #1F3525; border: 1px solid rgba(73, 175, 80, .3); display: flex; align-items: center; justify-content: center; color: var(--verde); }
+  .carregando-icone { width: 76px; height: 76px; border-radius: 22px; overflow: hidden; border: 1px solid rgba(73, 175, 80, .3); box-shadow: 0 0 28px rgba(76, 175, 80, .18); }
+  .carregando-icone img { display: block; width: 100%; height: 100%; }
   .carregando h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
   .carregando p { margin: 0; font-size: 14px; color: var(--muted); }
   .progresso-area { width: 220px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -312,7 +324,7 @@ $titulos = [
 <?php if ($tela === 'carregando'): ?>
   <main class="carregando" role="status" aria-live="polite">
     <div class="carregando-marca">
-      <div class="carregando-icone"><?= ic('broto', 38) ?></div>
+      <div class="carregando-icone"><img src="img/smart-demetra-icone.svg" alt="" width="76" height="76"></div>
       <h1>Smart Demetra</h1>
       <p>Carregando o painel…</p>
     </div>
@@ -329,7 +341,7 @@ $titulos = [
     <a class="voltar" href="login.php"><?= ic('voltar') ?>Voltar para o login</a>
     <div class="marca">
       <span class="sobrelinha">Novo cadastro</span>
-      <div class="logo"><?= ic('broto', 26) ?><h1>Smart Demetra</h1></div>
+      <div class="logo"><?= logo(52) ?><h1>Smart Demetra</h1></div>
       <p>Preencha os dados abaixo para criar seu acesso ao painel.</p>
     </div>
     <?php if (!$conviteAtivo): ?>
@@ -371,7 +383,7 @@ $titulos = [
 
 <?php elseif ($tela === 'erro_cadastro'): ?>
   <section class="cartao erro" role="alert">
-    <div class="cabecalho-mini"><?= ic('broto', 20) ?><strong>Smart Demetra</strong><span>CADASTRO</span></div>
+    <div class="cabecalho-mini"><?= logo(42) ?><strong>Smart Demetra</strong><span>CADASTRO</span></div>
     <div class="resultado">
       <div class="resultado-icone erro"><?= ic('alerta', 30) ?></div>
       <h1>Não foi possível concluir o cadastro</h1>
@@ -390,7 +402,7 @@ $titulos = [
 
 <?php elseif ($tela === 'cadastro_ok'): ?>
   <section class="cartao sucesso" role="status">
-    <div class="cabecalho-mini"><?= ic('broto', 20) ?><strong>Smart Demetra</strong><span>CADASTRO</span></div>
+    <div class="cabecalho-mini"><?= logo(42) ?><strong>Smart Demetra</strong><span>CADASTRO</span></div>
     <div class="resultado">
       <div class="resultado-icone sucesso"><?= ic('check', 30) ?></div>
       <h1>Cadastro concluído!</h1>
@@ -405,7 +417,7 @@ $titulos = [
 
 <?php elseif ($tela === 'esqueci'): ?>
   <section class="cartao">
-    <div class="cabecalho-mini"><?= ic('broto', 20) ?><strong>Smart Demetra</strong><span>ACESSO</span></div>
+    <div class="cabecalho-mini"><?= logo(42) ?><strong>Smart Demetra</strong><span>ACESSO</span></div>
     <div class="resultado">
       <div class="resultado-icone info"><?= ic('chave', 30) ?></div>
       <h1>Esqueceu a senha?</h1>
@@ -423,7 +435,7 @@ $titulos = [
   <section class="cartao">
     <div class="marca">
       <span class="sobrelinha">Painel de cultivo</span>
-      <div class="logo"><?= ic('broto', 26) ?><h1>Smart Demetra</h1></div>
+      <div class="logo"><?= logo(52) ?><h1>Smart Demetra</h1></div>
       <p>Entre com suas credenciais para acessar o painel.</p>
     </div>
     <form method="post" action="login.php">

@@ -28,6 +28,15 @@ const CONFIG_PADRAO = [
     'vpd_vegetativo_max' => '1.2',
     'vpd_floracao_min' => '1.2',
     'vpd_floracao_max' => '1.6',
+    // Clima por VPD: faixa da muda (vegetação e floração usam as faixas acima) e travas.
+    'vpd_muda_min' => '0.4',
+    'vpd_muda_max' => '0.8',
+    'clima_trava_temp' => '28',
+    'clima_trava_umid' => '60',
+    'clima_min_ligado' => '3',      // minutos que cada aparelho fica ligado no mínimo
+    'clima_min_desligado' => '3',   // minutos que fica desligado no mínimo (e acomodação entre os dois)
+    // Caixa d'água: alerta abaixo deste percentual da capacidade (70 L).
+    'agua_alerta_min' => '20',
     'dispositivo_sem_dados_min' => '5',
     'luz_manual_min' => '30',
 ];
@@ -107,8 +116,9 @@ function horario_fotoperiodo_valido(string $v): bool
     return (bool) preg_match('/^([01]\d|2[0-3]):(00|15|30|45)$/', $v);
 }
 
-// Solo em 0% nas 3 últimas leituras = sensor sem leitura. Registra em comandos_sistema
-// (tipo 'alerta', alvo 'Solo') só na mudança de estado: 'sem_leitura' ou 'normalizado'.
+// Solo sem valor (null) nas 3 últimas leituras = sensor sem leitura. O firmware 2.7.0 (sensor capacitivo v1.2)
+// manda null quando o sensor está solto ou sem alimentação; 0% passou a ser solo seco de verdade.
+// Registra em comandos_sistema (tipo 'alerta', alvo 'Solo') só na mudança de estado: 'sem_leitura' ou 'normalizado'.
 function verificar_sensor_solo(?string $timestamp): void
 {
     $ultimas = db()->query('SELECT solo_percentual FROM leituras_ambiente ORDER BY id DESC LIMIT 3')->fetchAll(PDO::FETCH_COLUMN);
@@ -117,7 +127,7 @@ function verificar_sensor_solo(?string $timestamp): void
     }
     $semLeitura = true;
     foreach ($ultimas as $v) {
-        if ($v === null || (int) $v !== 0) {
+        if ($v !== null) {
             $semLeitura = false;
             break;
         }

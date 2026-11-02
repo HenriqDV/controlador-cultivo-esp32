@@ -77,7 +77,9 @@ try {
                 AVG(temp_externa) AS temp_externa,
                 AVG(umid_externa) AS umid_externa,
                 AVG(solo_percentual) AS solo_percentual,
-                AVG($colunaVpd) AS vpd
+                AVG($colunaVpd) AS vpd,
+                AVG(agua_litros) AS agua_litros,
+                AVG(agua_percentual) AS agua_percentual
              FROM leituras_ambiente
              WHERE criado_em >= NOW() - INTERVAL ? HOUR
              GROUP BY DATE_FORMAT(COALESCE(dispositivo_timestamp, criado_em), '%Y-%m-%d %H:00:00')
@@ -96,7 +98,10 @@ try {
                 temp_externa,
                 umid_externa,
                 solo_percentual,
-                ROUND($colunaVpd, 2) AS vpd
+                ROUND($colunaVpd, 2) AS vpd,
+                agua_distancia_cm,
+                agua_litros,
+                agua_percentual
              FROM leituras_ambiente
              WHERE criado_em >= NOW() - INTERVAL ? HOUR
              ORDER BY criado_em ASC"

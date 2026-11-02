@@ -75,7 +75,48 @@ try {
     $stmtModo->execute();
     $modoAtual = $stmtModo->fetchColumn();
 
-    // Estado de cada automação confirmado pelo ESP32 (último registro por alvo, fora do LIMIT).
+    // Último estado de cada relé, fora do LIMIT. Relés que mudam pouco (ex.: ventilador) saem da janela
+    // das linhas mais recentes, e o painel mostraria "sem registro". "desde" = quando o estado atual começou
+    // (primeiro registro da sequência com o mesmo valor; registros repetidos, como os do boot, não zeram a contagem).
+    $reles = [];
+    $stmtUltimo = db()->prepare(
+        "SELECT id, criado_em, dispositivo_timestamp, tipo, alvo, valor, origem
+         FROM comandos_sistema WHERE tipo = 'rele' AND alvo = ? ORDER BY id DESC LIMIT 1"
+    );
+    $stmtTroca = db()->prepare(
+        "SELECT MAX(id) FROM comandos_sistema WHERE tipo = 'rele' AND alvo = ? AND valor <> ?"
+    );
+    $stmtInicio = db()->prepare(
+        "SELECT COALESCE(dispositivo_timestamp, criado_em) FROM comandos_sistema
+         WHERE tipo = 'rele' AND alvo = ? AND id > ? ORDER BY id ASC LIMIT 1"
+    );
+    foreach (['Luz', 'Umidificador', 'Ventilador', 'Irrigacao', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'] as $alvoRele) {
+        $stmtUltimo->execute([$alvoRele]);
+        $ultimo = $stmtUltimo->fetch();
+        if (!$ultimo) {
+            continue;
+        }
+        $stmtTroca->execute([$alvoRele, $ultimo['valor']]);
+        $idTroca = (int) $stmtTroca->fetchColumn();
+        $stmtInicio->execute([$alvoRele, $idTroca]);
+        $ultimo['desde'] = $stmtInicio->fetchColumn() ?: null;
+        unset($ultimo['id']);
+        $reles[$alvoRele] = $ultimo;
+    }
+
+    // Última liberação da porta, também fora do LIMIT.
+    $ultimoAcesso = db()->query(
+        "SELECT criado_em, dispositivo_timestamp, tipo, alvo, valor, origem
+         FROM comandos_sistema WHERE tipo = 'acesso' ORDER BY id DESC LIMIT 1"
+    )->fetch() ?: null;
+
+    // Clima por VPD confirmado pelo ESP32 (último registro, fora do LIMIT).
+    $clima = db()->query(
+        "SELECT valor, origem, COALESCE(dispositivo_timestamp, criado_em) AS quando
+         FROM comandos_sistema WHERE tipo = 'clima_vpd' ORDER BY id DESC LIMIT 1"
+    )->fetch() ?: null;
+
+    // Automações antigas (firmware 2.5), só para o histórico.
     $automacoes = [];
     $stmtAuto = db()->query(
         "SELECT alvo, valor, origem, COALESCE(dispositivo_timestamp, criado_em) AS quando
@@ -93,6 +134,9 @@ try {
         'ok' => true,
         'dados' => $dados,
         'modo_atual' => $modoAtual !== false ? $modoAtual : null,
+        'reles' => (object) $reles,
+        'ultimo_acesso' => $ultimoAcesso,
+        'clima' => $clima,
         'automacoes' => (object) $automacoes,
     ]);
 } catch (Throwable $e) {

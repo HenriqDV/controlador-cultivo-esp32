@@ -39,7 +39,7 @@ try {
 
     $leituras = $pdo->prepare(
         'SELECT COALESCE(dispositivo_timestamp, criado_em) AS quando, criado_em, temp_interna, umid_interna, temp_externa, umid_externa,
-                solo_percentual, COALESCE(vpd, ' . SQL_FORMULA_VPD . ') AS vpd
+                solo_percentual, COALESCE(vpd, ' . SQL_FORMULA_VPD . ') AS vpd, agua_litros, agua_percentual
          FROM leituras_ambiente WHERE criado_em >= NOW() - INTERVAL ? HOUR ORDER BY criado_em ASC, id ASC'
     );
     $leituras->bindValue(1, $horas, PDO::PARAM_INT);
@@ -58,7 +58,7 @@ header('Cache-Control: no-store');
 
 $saida = fopen('php://output', 'w');
 fwrite($saida, "\xEF\xBB\xBF");
-fputcsv($saida, ['Data/hora', 'Temperatura interna (°C)', 'Umidade interna (%)', 'Temperatura externa (°C)', 'Umidade externa (%)', 'Solo (%)', 'VPD (kPa)', 'Luz'], ';');
+fputcsv($saida, ['Data/hora', 'Temperatura interna (°C)', 'Umidade interna (%)', 'Temperatura externa (°C)', 'Umidade externa (%)', 'Solo (%)', 'VPD (kPa)', 'Caixa d\'água (L)', 'Caixa d\'água (%)', 'Luz'], ';');
 
 $i = 0;
 $total = count($luz);
@@ -76,6 +76,8 @@ while ($l = $leituras->fetch()) {
         num_csv($l['umid_externa'], 1),
         $l['solo_percentual'] === null ? '' : (string) (int) $l['solo_percentual'],
         num_csv($l['vpd'], 2),
+        num_csv($l['agua_litros'], 1),
+        $l['agua_percentual'] === null ? '' : (string) (int) $l['agua_percentual'],
         $estadoLuz === 'ligado' ? 'acesa' : ($estadoLuz === 'desligado' ? 'apagada' : ''),
     ], ';');
 }

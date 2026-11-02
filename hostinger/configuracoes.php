@@ -87,6 +87,13 @@ const LIMITES_PREFERENCIAS = [
     'vpd_vegetativo_max' => [0, 3, 2, 'VPD da vegetação'],
     'vpd_floracao_min' => [0, 3, 2, 'VPD da floração'],
     'vpd_floracao_max' => [0, 3, 2, 'VPD da floração'],
+    'vpd_muda_min' => [0, 3, 2, 'VPD da muda'],
+    'vpd_muda_max' => [0, 3, 2, 'VPD da muda'],
+    'clima_trava_temp' => [15, 40, 1, 'Trava do aquecedor'],
+    'clima_trava_umid' => [30, 95, 0, 'Trava do umidificador'],
+    'clima_min_ligado' => [1, 15, 0, 'Tempo mínimo ligado'],
+    'clima_min_desligado' => [1, 15, 0, 'Tempo mínimo desligado'],
+    'agua_alerta_min' => [0, 90, 0, 'Alerta da caixa d\'água'],
 ];
 
 // Retorna o valor normalizado ou null se inválido.
@@ -109,7 +116,7 @@ function normalizar_preferencia(string $chave, $valor): ?string
             if ($v === 'automacao') {
                 $v = 'fotoperiodo'; // nome antigo da página
             }
-            return in_array($v, ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'historico', 'dispositivo', 'configuracoes'], true) ? $v : null;
+            return in_array($v, ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'caixa', 'historico', 'dispositivo', 'configuracoes'], true) ? $v : null;
         case 'intervalo_atualizacao_seg':
             return in_array($v, ['60', '120', '300', '600'], true) ? $v : null;
         case 'periodo_padrao_historico':
@@ -159,6 +166,7 @@ try {
             ['umid_alerta_min', 'umid_alerta_max', 'Umidade interna'],
             ['vpd_vegetativo_min', 'vpd_vegetativo_max', 'VPD da vegetação'],
             ['vpd_floracao_min', 'vpd_floracao_max', 'VPD da floração'],
+            ['vpd_muda_min', 'vpd_muda_max', 'VPD da muda'],
         ];
         foreach ($faixas as [$cMin, $cMax, $rotulo]) {
             if ((float) $atual[$cMin] >= (float) $atual[$cMax]) {

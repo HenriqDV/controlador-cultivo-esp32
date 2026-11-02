@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS leituras_ambiente (
   umid_externa DECIMAL(5,2) NULL,
   solo_percentual TINYINT UNSIGNED NULL,
   vpd DECIMAL(4,2) NULL,
+  agua_distancia_cm DECIMAL(5,1) NULL,   -- caixa d'água (HC-SR04)
+  agua_litros DECIMAL(5,1) NULL,
+  agua_percentual TINYINT UNSIGNED NULL,
   INDEX idx_leituras_criado_em (criado_em)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -25,7 +28,8 @@ CREATE TABLE IF NOT EXISTS comandos_sistema (
   valor VARCHAR(80) NOT NULL,
   origem VARCHAR(40) NOT NULL,
   INDEX idx_comandos_criado_em (criado_em),
-  INDEX idx_comandos_tipo (tipo)
+  INDEX idx_comandos_tipo (tipo),
+  INDEX idx_comandos_tipo_alvo (tipo, alvo, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Fila dashboard -> ESP32 (enviar_comando.php grava, comandos_pendentes.php entrega).

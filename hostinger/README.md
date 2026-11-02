@@ -8,7 +8,7 @@ do projeto está no `README.md` da raiz.
 
 | Arquivo | Acesso | Função |
 |---|---|---|
-| `index.php` | Sessão | Dashboard (Início, Relógio de eventos, Fotoperíodo, Comandos, Histórico, Dispositivo, Configurações) |
+| `index.php` | Sessão | Dashboard (Início, Relógio de eventos, Fotoperíodo, Comandos, Caixa d'água, Histórico, Dispositivo, Configurações) |
 | `login.php` / `logout.php` | — | Login, cadastro (com código de convite), esqueci a senha, sair |
 | `auth.php` | — | Contas, "Lembrar de mim", código de convite e CSRF |
 | `usuarios.php` | Sessão | Alterar senha; admin: contas, redefinir senha, convite |
@@ -28,6 +28,7 @@ do projeto está no `README.md` da raiz.
 | `fotoperiodo.php` | Sessão | Troca de fase: ativar agora, programar para uma data, cancelar |
 | `cron.php` | Só linha de comando | Trocas de fase programadas e avisos do Telegram (cron a cada minuto) |
 | `notificacoes.php` | Sessão | Vínculo do Telegram, mensagem de teste e interruptores dos avisos |
+| `img/` | Pública | Logo (`logo.svg`), ícone do app (`smart-demetra-icone.svg`) e favicons (PNG 32, 180, 192 e 512) |
 | `telegram.php` | — | Envio pelo bot, limite de 1 aviso a cada 30 min e "normalizado" |
 | `sql/schema.sql` | — | Estrutura do banco (instalação nova) |
 | `sql/migracoes/` | — | Mudanças de banco numeradas: `.up.sql` aplica sozinho, `.down.sql` desfaz (rodar no phpMyAdmin) |

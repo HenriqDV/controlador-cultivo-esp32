@@ -63,19 +63,25 @@ $alvo = trim((string) ($data['alvo'] ?? ''));
 $valor = trim((string) ($data['valor'] ?? ''));
 
 // Whitelist: só comandos que o firmware entende (aplicarComandoRemotoWeb()).
-$relesValidos = ['Umidificador', 'Ventilador', 'Irrigacao', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
+$relesValidos = ['Irrigacao', 'Ventilador', 'Umidificador', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
 
-// Faixas aceitas pelo firmware (definirAutomacaoRemota()).
-function automacao_valida(string $alvo, string $valor): bool
+// Clima por VPD: "ativa;fase;min;max;travaTemp;travaUmid;minLigado;minDesligado",
+// ex.: "1;2;1.20;1.60;28.0;60;3;3" (fase 0 muda, 1 vegetação, 2 floração; tempos mínimos em minutos).
+// Mesmos limites do firmware (interpretarValorClima()).
+function clima_valido(string $valor): bool
 {
-    $limites = ['aquecedor' => [5.0, 40.0], 'umidade' => [20.0, 95.0]];
-    if (!isset($limites[$alvo]) || !preg_match('/^([01]);(\d{1,2}(?:\.\d)?);(\d{1,2}(?:\.\d)?)$/', $valor, $m)) {
+    if (!preg_match('/^([01]);([0-2]);(\d\.\d{1,2});(\d\.\d{1,2});(\d{2}(?:\.\d)?);(\d{2});(\d{1,2});(\d{1,2})$/', $valor, $m)) {
         return false;
     }
-    [$inf, $sup] = $limites[$alvo];
-    $min = (float) $m[2];
-    $max = (float) $m[3];
-    return $min >= $inf && $max <= $sup && ($max - $min) >= 1.0;
+    $min = (float) $m[3];
+    $max = (float) $m[4];
+    $travaTemp = (float) $m[5];
+    $travaUmid = (int) $m[6];
+    $minLigado = (int) $m[7];
+    $minDesligado = (int) $m[8];
+    return $min >= 0.2 && $max <= 2.5 && ($max - $min) >= 0.1
+        && $travaTemp >= 15 && $travaTemp <= 40 && $travaUmid >= 30 && $travaUmid <= 95
+        && $minLigado >= 1 && $minLigado <= 15 && $minDesligado >= 1 && $minDesligado <= 15;
 }
 
 $valido = false;
@@ -87,8 +93,7 @@ if ($tipo === 'rele' && in_array($alvo, $relesValidos, true) && in_array($valor,
     $valido = true;
 } elseif ($tipo === 'acesso' && $alvo === 'acesso' && $valor === 'liberar') {
     $valido = true;
-} elseif ($tipo === 'automacao' && automacao_valida($alvo, $valor)) {
-    // "ativa;min;max", ex.: "1;20.0;24.0" (aquecedor em °C, umidade em %).
+} elseif ($tipo === 'clima_vpd' && $alvo === 'clima' && clima_valido($valor)) {
     $valido = true;
 } elseif ($tipo === 'fotoperiodo' && in_array($alvo, ['vegetativo', 'floracao'], true) && horario_fotoperiodo_valido($valor)) {
     // Início da luz "HH:MM"; a duração é fixa no firmware.
@@ -105,9 +110,9 @@ if (!$valido) {
 }
 
 try {
-    // Automação: só o último ajuste ainda não entregue vale.
-    if ($tipo === 'automacao') {
-        db()->prepare("DELETE FROM comandos_pendentes WHERE tipo = 'automacao' AND alvo = ? AND status = 'pendente'")->execute([$alvo]);
+    // Clima por VPD: só o último ajuste ainda não entregue vale.
+    if ($tipo === 'clima_vpd') {
+        db()->prepare("DELETE FROM comandos_pendentes WHERE tipo = 'clima_vpd' AND status = 'pendente'")->execute();
     }
     $stmt = db()->prepare(
         'INSERT INTO comandos_pendentes (tipo, alvo, valor, usuario) VALUES (?, ?, ?, ?)'

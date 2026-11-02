@@ -68,6 +68,7 @@ try {
     ];
 
     if (garantir_schema_v2()) {
+        // Caixa d'água (firmware 2.7.0+); firmwares antigos não mandam e ficam null.
         $stmt = db()->prepare(
             'INSERT INTO leituras_ambiente (
                 dispositivo_timestamp,
@@ -76,10 +77,16 @@ try {
                 temp_externa,
                 umid_externa,
                 solo_percentual,
-                vpd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                vpd,
+                agua_distancia_cm,
+                agua_litros,
+                agua_percentual
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $valores[] = calcular_vpd($tempInterna, $umidInterna);
+        $valores[] = nullable_float($data, 'agua_distancia_cm');
+        $valores[] = nullable_float($data, 'agua_litros');
+        $valores[] = nullable_int($data, 'agua_percentual');
     } else {
         // Sem a coluna vpd: grava sem ela.
         $stmt = db()->prepare(

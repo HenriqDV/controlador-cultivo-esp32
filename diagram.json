@@ -218,6 +218,15 @@
       "attrs": {
         "text": "SaidaAr (GPIO35)"
       }
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "sonar1",
+      "top": 500,
+      "left": 250,
+      "attrs": {
+        "distance": "20"
+      }
     }
   ],
   "connections": [
@@ -520,7 +529,31 @@
       "esp:GND.2",
       "black",
       []
+    ],
+    [
+      "sonar1:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "sonar1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "sonar1:TRIG",
+      "esp:12",
+      "orange",
+      []
+    ],
+    [
+      "sonar1:ECHO",
+      "esp:13",
+      "purple",
+      []
     ]
   ],
   "dependencies": {}
-}
+}
