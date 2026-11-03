@@ -16,7 +16,7 @@ $ehAdmin = auth_eh_admin();
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Smart Demetra — Painel</title>
-<link rel="icon" type="image/svg+xml" href="img/smart-demetra-icone.svg">
+<link rel="preload" href="fonts/DemetraDisplay-Regular.otf" as="font" type="font/otf" crossorigin>
 <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="img/icone-192.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
@@ -48,7 +48,7 @@ $ehAdmin = auth_eh_admin();
     --raio-sm: 10px;
     --sombra: 0 10px 28px rgba(0, 0, 0, .38);
     --fonte: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --sidebar-w: 252px;
+    --sidebar-w: 280px;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -79,14 +79,17 @@ $ehAdmin = auth_eh_admin();
     transition: transform .2s ease;
   }
   .sidebar-logo {
-    display: flex; align-items: center; gap: 10px;
-    padding: 16px 14px 14px 16px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px 10px 12px;
     border-bottom: 1px solid var(--borda);
   }
-  /* Logo da marca (img/logo.svg). */
-  .logo-marca { width: 50px; height: 48px; flex: none; display: block; }
+  /* Wordmark: Demetra Display Regular, exclusiva do nome Smart Demetra (manual de identidade). */
+  @font-face { font-family: 'Demetra Display'; src: url('fonts/DemetraDisplay-Regular.otf') format('opentype'); font-weight: 400; font-style: normal; font-display: swap; }
+  .marca-nome { font-family: 'Demetra Display', 'Plus Jakarta Sans', sans-serif; font-weight: 400; letter-spacing: -.01em; }
+  /* Símbolo: arquivo mestre img/logo.png (256 × 256, 1:1, brilho já incluso). */
+  .logo-marca { width: 70px; height: 70px; flex: none; display: block; object-fit: contain; }
   .sidebar-logo span {
-    font-weight: 800; font-size: 22px; letter-spacing: -.02em; color: var(--texto);
+    font-size: 22px; color: var(--texto);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
   }
   .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 14px 12px; flex: 1; }
@@ -129,7 +132,7 @@ $ehAdmin = auth_eh_admin();
     display: none;
     position: sticky; top: 0; z-index: 120;
     align-items: center; justify-content: space-between; gap: 12px;
-    padding: 14px 16px;
+    padding: 6px 16px 6px 8px;
     background: rgba(18, 20, 20, .92);
     backdrop-filter: blur(6px);
     border-bottom: 1px solid var(--borda);
@@ -139,8 +142,8 @@ $ehAdmin = auth_eh_admin();
     width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
     color: var(--texto); cursor: pointer; flex: none;
   }
-  .topo-mobile .topo-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 21px; letter-spacing: -.02em; min-width: 0; }
-  .topo-mobile .topo-logo .logo-marca { width: 46px; height: 45px; }
+  .topo-mobile .topo-logo { display: flex; align-items: center; gap: 8px; font-size: 22px; min-width: 0; }
+  .topo-mobile .topo-logo .logo-marca { width: 66px; height: 66px; }
   .topo-mobile .topo-logo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ---------------- Conteúdo ---------------- */

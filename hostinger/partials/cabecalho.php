@@ -3,8 +3,8 @@
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
-      <img class="logo-marca" src="img/logo.svg" alt="" width="50" height="48">
-      <span id="nomeCultivoSidebar">Smart Demetra</span>
+      <img class="logo-marca" src="img/logo.png" alt="" width="70" height="70">
+      <span class="marca-nome" id="nomeCultivoSidebar">Smart Demetra</span>
     </div>
     <nav class="sidebar-nav">
       <button type="button" class="nav-item ativo" data-aba="inicio"><svg data-lucide="home"></svg>In&iacute;cio</button>
@@ -27,8 +27,8 @@
 
     <header class="topo-mobile">
       <div class="topo-logo">
-        <img class="logo-marca" src="img/logo.svg" alt="" width="46" height="45">
-        <span id="nomeCultivoTopo">Smart Demetra</span>
+        <img class="logo-marca" src="img/logo.png" alt="" width="66" height="66">
+        <span class="marca-nome" id="nomeCultivoTopo">Smart Demetra</span>
       </div>
       <button type="button" class="btn-hamburger" id="btnHamburger" aria-label="Abrir menu"><svg data-lucide="menu"></svg></button>
     </header>

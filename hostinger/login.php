@@ -96,10 +96,10 @@ function h(?string $v): string
     return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
 }
 
-// Logo do Smart Demetra (img/logo.svg), no tamanho pedido.
+// Símbolo do Smart Demetra: arquivo mestre img/logo.png (1:1, brilho já incluso), no tamanho pedido.
 function logo(int $tam): string
 {
-    return '<img class="logo-marca" src="img/logo.svg" alt="" width="' . $tam . '" height="' . round($tam * 436 / 451) . '">';
+    return '<img class="logo-marca" src="img/logo.png" alt="" width="' . $tam . '" height="' . $tam . '">';
 }
 
 // Ícones (traços no estilo Lucide) com stroke = currentColor.
@@ -150,40 +150,40 @@ $titulos = [
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Smart Demetra — <?= h($titulos[$tela]) ?></title>
-<link rel="icon" type="image/svg+xml" href="img/smart-demetra-icone.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="img/icone-192.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
-<meta name="theme-color" content="#111613">
+<meta name="theme-color" content="#121414">
+<link rel="preload" href="fonts/DemetraDisplay-Regular.otf" as="font" type="font/otf" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     color-scheme: dark;
-    --bg: #111613;
-    --card: #1B201E;
-    --borda: #272D29;
-    --campo: #101512;
-    --campo-borda: #2A302B;
-    --sec: #151A17;
-    --sec-borda: #2F3631;
-    --texto: #E8EAE8;
+    --bg: #121414;
+    --card: #1a1e1d;
+    --borda: #2a302c;
+    --campo: #121414;
+    --campo-borda: #2a302c;
+    --sec: #20241f;
+    --sec-borda: #2a302c;
+    --texto: #eef1ee;
     --texto-2: #C2C7C3;
-    --muted: #8A908B;
+    --muted: #8a938e;
     --placeholder: #7A817B;
-    --verde: #49AF50;
-    --verde-tinta: #0C120E;
-    --verde-glow: rgba(73, 175, 80, .18);
-    --vermelho: #E27064;
-    --amarelo: #DFC269;
-    --fonte: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --verde: #4CAF50;
+    --verde-tinta: #0d1c0e;
+    --verde-glow: rgba(76, 175, 80, .18);
+    --vermelho: #e08a85;
+    --amarelo: #e8c977;
+    --fonte: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { min-height: 100%; }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--texto); font-family: var(--fonte);
+    margin: 0; min-height: 100vh; background: radial-gradient(1000px 500px at 20% -10%, rgba(76, 175, 80, .08), transparent 60%), var(--bg); color: var(--texto); font-family: var(--fonte);
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
     padding: 24px 16px; -webkit-font-smoothing: antialiased;
   }
@@ -191,21 +191,24 @@ $titulos = [
   input::placeholder { color: var(--placeholder); }
 
   .cartao {
-    width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--borda); border-radius: 20px;
+    width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--borda); border-radius: 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, .4);
     padding: 28px 24px; display: flex; flex-direction: column; gap: 22px;
   }
-  .cartao.erro { border-color: rgba(226, 112, 100, .35); }
-  .cartao.sucesso { border-color: rgba(73, 175, 80, .45); }
+  .cartao.erro { border-color: rgba(224, 138, 133, .35); }
+  .cartao.sucesso { border-color: rgba(76, 175, 80, .45); }
 
   .marca { display: flex; flex-direction: column; gap: 10px; }
   .sobrelinha { font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--verde); text-transform: uppercase; }
-  .logo { display: flex; align-items: center; gap: 12px; color: var(--verde); }
-  .logo h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; color: var(--texto); }
+  /* Wordmark: Demetra Display Regular, exclusiva do nome Smart Demetra (manual de identidade). */
+  @font-face { font-family: 'Demetra Display'; src: url('fonts/DemetraDisplay-Regular.otf') format('opentype'); font-weight: 400; font-style: normal; font-display: swap; }
+  .marca-nome { font-family: 'Demetra Display', 'Plus Jakarta Sans', sans-serif; font-weight: 400; letter-spacing: -.01em; }
+  .logo { display: flex; align-items: center; gap: 10px; color: var(--verde); }
+  .logo h1 { margin: 0; font-size: 30px; color: var(--texto); }
   .marca p { margin: 0; font-size: 14px; line-height: 20px; color: var(--muted); }
 
-  .logo-marca { display: block; flex: none; }
-  .cabecalho-mini { display: flex; align-items: center; gap: 10px; color: var(--verde); }
-  .cabecalho-mini strong { font-size: 21px; font-weight: 700; letter-spacing: -.01em; color: var(--texto); }
+  .logo-marca { display: block; flex: none; object-fit: contain; }
+  .cabecalho-mini { display: flex; align-items: center; gap: 8px; color: var(--verde); }
+  .cabecalho-mini strong { font-size: 22px; color: var(--texto); }
   .cabecalho-mini span { margin-left: auto; font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--muted); }
 
   form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
@@ -213,12 +216,12 @@ $titulos = [
   .campo label { font-size: 12px; font-weight: 500; color: var(--muted); }
   .entrada {
     display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
-    background: var(--campo); border: 1px solid var(--campo-borda); border-radius: 12px; color: var(--muted);
+    background: var(--campo); border: 1px solid var(--campo-borda); border-radius: 10px; color: var(--muted);
     transition: border-color .15s ease, box-shadow .15s ease, color .15s ease;
   }
   .entrada.com-botao { padding-right: 4px; }
   .entrada:focus-within { border-color: var(--verde); box-shadow: 0 0 0 3px var(--verde-glow); color: var(--verde); }
-  .entrada.invalida { border-color: rgba(226, 112, 100, .6); }
+  .entrada.invalida { border-color: rgba(224, 138, 133, .6); }
   .entrada svg { flex: none; }
   .entrada input {
     flex: 1; min-width: 0; height: 100%; background: transparent; border: 0; outline: none;
@@ -238,13 +241,13 @@ $titulos = [
 
   .btn {
     height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
-    border-radius: 12px; font: 600 15px var(--fonte); text-decoration: none; cursor: pointer; border: 0;
+    border-radius: 10px; font: 700 15px var(--fonte); text-decoration: none; cursor: pointer; border: 0;
     transition: filter .15s ease, transform .1s ease;
   }
   .btn:active { transform: scale(.985); }
   .btn-primario { background: var(--verde); color: var(--verde-tinta); }
   .btn-primario:hover { filter: brightness(1.07); }
-  .btn-primario:disabled { background: #2A302B; color: var(--muted); cursor: not-allowed; transform: none; filter: none; }
+  .btn-primario:disabled { background: #2a302c; color: var(--muted); cursor: not-allowed; transform: none; filter: none; }
   .btn-secundario { background: var(--sec); border: 1px solid var(--sec-borda); color: var(--texto); }
   .btn-secundario:hover { border-color: #3b443d; }
   .btn:focus-visible, .link-pequeno:focus-visible, .voltar:focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; }
@@ -262,7 +265,7 @@ $titulos = [
 
   .aviso {
     display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 19px;
-    background: rgba(226, 112, 100, .08); border: 1px solid rgba(226, 112, 100, .28); color: var(--texto);
+    background: rgba(224, 138, 133, .08); border: 1px solid rgba(224, 138, 133, .28); color: var(--texto);
   }
   .aviso svg { flex: none; margin-top: 1px; color: var(--vermelho); }
   .aviso.neutro { background: rgba(223, 194, 105, .08); border-color: rgba(223, 194, 105, .3); }
@@ -278,22 +281,22 @@ $titulos = [
 
   .resultado { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
   .resultado-icone { width: 64px; height: 64px; border-radius: 20px; display: flex; align-items: center; justify-content: center; }
-  .resultado-icone.erro { background: rgba(226, 112, 100, .14); color: var(--vermelho); }
-  .resultado-icone.sucesso { background: rgba(73, 175, 80, .16); color: var(--verde); }
+  .resultado-icone.erro { background: rgba(224, 138, 133, .14); color: var(--vermelho); }
+  .resultado-icone.sucesso { background: rgba(76, 175, 80, .16); color: var(--verde); }
   .resultado-icone.info { background: rgba(223, 194, 105, .14); color: var(--amarelo); }
   .resultado h1 { margin: 0; font-size: 22px; line-height: 28px; font-weight: 700; letter-spacing: -.02em; }
   .resultado p { margin: 0; font-size: 14px; line-height: 20px; color: var(--muted); }
 
   .lista-erros {
     margin: 0; padding: 14px 16px; list-style: none; display: flex; flex-direction: column; gap: 10px;
-    background: rgba(226, 112, 100, .08); border: 1px solid rgba(226, 112, 100, .28); border-radius: 12px;
+    background: rgba(224, 138, 133, .08); border: 1px solid rgba(224, 138, 133, .28); border-radius: 12px;
   }
   .lista-erros li { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 20px; }
   .lista-erros svg { flex: none; margin-top: 3px; color: var(--vermelho); }
 
   .dados { margin: 0; padding: 4px 16px; display: flex; flex-direction: column; background: var(--sec); border: 1px solid var(--borda); border-radius: 12px; }
   .dados div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; }
-  .dados div + div { border-top: 1px solid #252B27; }
+  .dados div + div { border-top: 1px solid var(--borda); }
   .dados dt { font-size: 13px; color: var(--muted); }
   .dados dd { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; text-align: right; }
 
@@ -302,20 +305,34 @@ $titulos = [
 
   .carregando { display: flex; flex-direction: column; align-items: center; gap: 28px; }
   .carregando-marca { display: flex; flex-direction: column; align-items: center; gap: 16px; }
-  .carregando-icone { width: 76px; height: 76px; border-radius: 22px; overflow: hidden; border: 1px solid rgba(73, 175, 80, .3); box-shadow: 0 0 28px rgba(76, 175, 80, .18); }
-  .carregando-icone img { display: block; width: 100%; height: 100%; }
-  .carregando h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+  .carregando-logo { display: flex; align-items: center; gap: 11px; }
+  .carregando h1 { margin: 0; font-size: 36px; color: var(--texto); }
+  /* Celulares estreitos: o nome encolhe um pouco para caber inteiro ao lado do símbolo. */
+  @media (max-width: 400px) {
+    .logo h1 { font-size: 25px; }
+    .cabecalho-mini strong { font-size: 18px; }
+    .carregando h1 { font-size: 28px; }
+  }
   .carregando p { margin: 0; font-size: 14px; color: var(--muted); }
   .progresso-area { width: 220px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-  .progresso { width: 100%; height: 6px; border-radius: 3px; background: #232A24; overflow: hidden; }
+  .progresso { width: 100%; height: 6px; border-radius: 3px; background: var(--sec); overflow: hidden; }
   .progresso div { width: 0; height: 100%; border-radius: 3px; background: var(--verde); animation: encher 1.3s cubic-bezier(.3, .7, .4, 1) forwards; }
   .progresso-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .ponto { width: 6px; height: 6px; border-radius: 3px; background: var(--verde); animation: pulsar 1s ease-in-out infinite; }
   @keyframes encher { to { width: 100%; } }
+  .marca-entrada .logo-marca { animation: marcaEntrar 700ms cubic-bezier(.22, 1, .36, 1) both; }
+  .marca-entrada .marca-nome { animation: marcaEntrar 700ms cubic-bezier(.22, 1, .36, 1) 180ms both; }
+  @keyframes marcaEntrar {
+    0% { opacity: 0; transform: translateY(8px) scale(.96); }
+    60% { opacity: .75; transform: scale(1.01); }
+    100% { opacity: 1; transform: none; }
+  }
+  @keyframes marcaFade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes pulsar { 50% { opacity: .3; } }
   @media (prefers-reduced-motion: reduce) {
     .progresso div { animation: none; width: 100%; }
     .ponto { animation: none; }
+    .marca-entrada .logo-marca, .marca-entrada .marca-nome { animation: marcaFade 150ms ease both; }
   }
 </style>
 </head>
@@ -324,8 +341,7 @@ $titulos = [
 <?php if ($tela === 'carregando'): ?>
   <main class="carregando" role="status" aria-live="polite">
     <div class="carregando-marca">
-      <div class="carregando-icone"><img src="img/smart-demetra-icone.svg" alt="" width="76" height="76"></div>
-      <h1>Smart Demetra</h1>
+      <div class="carregando-logo marca-entrada"><?= logo(80) ?><h1 class="marca-nome">Smart Demetra</h1></div>
       <p>Carregando o painel…</p>
     </div>
     <div class="progresso-area">
@@ -341,7 +357,7 @@ $titulos = [
     <a class="voltar" href="login.php"><?= ic('voltar') ?>Voltar para o login</a>
     <div class="marca">
       <span class="sobrelinha">Novo cadastro</span>
-      <div class="logo"><?= logo(52) ?><h1>Smart Demetra</h1></div>
+      <div class="logo"><?= logo(72) ?><h1 class="marca-nome">Smart Demetra</h1></div>
       <p>Preencha os dados abaixo para criar seu acesso ao painel.</p>
     </div>
     <?php if (!$conviteAtivo): ?>
@@ -383,7 +399,7 @@ $titulos = [
 
 <?php elseif ($tela === 'erro_cadastro'): ?>
   <section class="cartao erro" role="alert">
-    <div class="cabecalho-mini"><?= logo(42) ?><strong>Smart Demetra</strong><span>CADASTRO</span></div>
+    <div class="cabecalho-mini"><?= logo(62) ?><strong class="marca-nome">Smart Demetra</strong><span>CADASTRO</span></div>
     <div class="resultado">
       <div class="resultado-icone erro"><?= ic('alerta', 30) ?></div>
       <h1>Não foi possível concluir o cadastro</h1>
@@ -402,7 +418,7 @@ $titulos = [
 
 <?php elseif ($tela === 'cadastro_ok'): ?>
   <section class="cartao sucesso" role="status">
-    <div class="cabecalho-mini"><?= logo(42) ?><strong>Smart Demetra</strong><span>CADASTRO</span></div>
+    <div class="cabecalho-mini"><?= logo(62) ?><strong class="marca-nome">Smart Demetra</strong><span>CADASTRO</span></div>
     <div class="resultado">
       <div class="resultado-icone sucesso"><?= ic('check', 30) ?></div>
       <h1>Cadastro concluído!</h1>
@@ -417,7 +433,7 @@ $titulos = [
 
 <?php elseif ($tela === 'esqueci'): ?>
   <section class="cartao">
-    <div class="cabecalho-mini"><?= logo(42) ?><strong>Smart Demetra</strong><span>ACESSO</span></div>
+    <div class="cabecalho-mini"><?= logo(62) ?><strong class="marca-nome">Smart Demetra</strong><span>ACESSO</span></div>
     <div class="resultado">
       <div class="resultado-icone info"><?= ic('chave', 30) ?></div>
       <h1>Esqueceu a senha?</h1>
@@ -435,7 +451,7 @@ $titulos = [
   <section class="cartao">
     <div class="marca">
       <span class="sobrelinha">Painel de cultivo</span>
-      <div class="logo"><?= logo(52) ?><h1>Smart Demetra</h1></div>
+      <div class="logo marca-entrada"><?= logo(72) ?><h1 class="marca-nome">Smart Demetra</h1></div>
       <p>Entre com suas credenciais para acessar o painel.</p>
     </div>
     <form method="post" action="login.php">
@@ -484,10 +500,10 @@ $titulos = [
     const rotulo = document.getElementById('forcaRotulo');
     const NIVEIS = [
       { texto: '', cor: '' },
-      { texto: 'Fraca', cor: '#E27064' },
-      { texto: 'Média', cor: '#DFC269' },
+      { texto: 'Fraca', cor: '#e08a85' },
+      { texto: 'Média', cor: '#e8c977' },
       { texto: 'Boa', cor: '#9CC65A' },
-      { texto: 'Forte', cor: '#49AF50' },
+      { texto: 'Forte', cor: '#4CAF50' },
     ];
     function forcaSenha(s) {
       if (!s) return 0;

@@ -227,7 +227,8 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 ├── hostinger/                   # painel + API (vai para o public_html)
 │   ├── index.php                # painel (todas as páginas)
 │   ├── partials/                # cabeçalho e rodapé comuns
-│   ├── img/                     # logo, ícone do app e favicons
+│   ├── img/                     # símbolo da marca (logo.png), ícones do app e favicons
+│   ├── fonts/                   # Demetra Display (só o nome Smart Demetra)
 │   ├── login.php / logout.php   # acesso e cadastro
 │   ├── auth.php                 # contas, "lembrar de mim", convite, CSRF, limite de tentativas
 │   ├── usuarios.php             # senha e gestão de contas

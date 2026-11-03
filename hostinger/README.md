@@ -28,7 +28,8 @@ do projeto está no `README.md` da raiz.
 | `fotoperiodo.php` | Sessão | Troca de fase: ativar agora, programar para uma data, cancelar |
 | `cron.php` | Só linha de comando | Trocas de fase programadas e avisos do Telegram (cron a cada minuto) |
 | `notificacoes.php` | Sessão | Vínculo do Telegram, mensagem de teste e interruptores dos avisos |
-| `img/` | Pública | Logo (`logo.svg`), ícone do app (`smart-demetra-icone.svg`) e favicons (PNG 32, 180, 192 e 512) |
+| `img/` | Pública | Símbolo da marca (`logo.png`, arquivo mestre 256 × 256 do manual de identidade), favicon e ícones do app (PNG 32, 180, 192 e 512) |
+| `fonts/` | Pública | `DemetraDisplay-Regular.otf`, fonte exclusiva do nome Smart Demetra (o resto da interface usa Plus Jakarta Sans) |
 | `telegram.php` | — | Envio pelo bot, limite de 1 aviso a cada 30 min e "normalizado" |
 | `sql/schema.sql` | — | Estrutura do banco (instalação nova) |
 | `sql/migracoes/` | — | Mudanças de banco numeradas: `.up.sql` aplica sozinho, `.down.sql` desfaz (rodar no phpMyAdmin) |
