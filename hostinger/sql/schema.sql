@@ -125,3 +125,10 @@ CREATE TABLE IF NOT EXISTS notificacoes_estado (
   ultimo_envio DATETIME NULL,
   atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Estado atual do ESP32 (a cada 5 s, uma linha só): deixa o painel ao vivo.
+CREATE TABLE IF NOT EXISTS estado_atual (
+  id TINYINT UNSIGNED PRIMARY KEY,
+  dados TEXT NOT NULL,
+  recebido_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

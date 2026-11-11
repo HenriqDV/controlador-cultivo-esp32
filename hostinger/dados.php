@@ -1,55 +1,11 @@
 <?php
 declare(strict_types=1);
 
-ob_start();
-ini_set('display_errors', '0');
-error_reporting(E_ALL);
+require __DIR__ . '/api_comum.php';
 
-register_shutdown_function(function (): void {
-    $erro = error_get_last();
-    $fataisTipo = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR];
-
-    if ($erro !== null && in_array($erro['type'], $fataisTipo, true)) {
-        if (ob_get_length()) {
-            ob_clean();
-        }
-        if (!headers_sent()) {
-            http_response_code(500);
-            header('Content-Type: application/json; charset=utf-8');
-        }
-        echo json_encode([
-            'ok' => false,
-            'erro' => 'erro_fatal_php',
-            'detalhe' => $erro['message'] . ' em ' . basename((string) $erro['file']) . ':' . $erro['line'],
-        ]);
-    }
-});
-
-set_error_handler(function (int $severity, string $message, string $file = '', int $line = 0): bool {
-    if (!(error_reporting() & $severity)) {
-        return false;
-    }
-    throw new ErrorException($message, 0, $severity, $file, $line);
-});
-
-try {
-    require __DIR__ . '/config.php';
-    require __DIR__ . '/migracoes.php';
-} catch (Throwable $e) {
-    if (ob_get_length()) {
-        ob_clean();
-    }
-    http_response_code(500);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode([
-        'ok' => false,
-        'erro' => 'falha_ao_carregar_config',
-        'detalhe' => $e->getMessage(),
-    ]);
-    exit;
-}
-
-header('Content-Type: application/json; charset=utf-8');
+// Leituras para os gráficos do painel (sessão).
+// Exige login: antes qualquer pessoa com o endereço via estes dados.
+require_login_api();
 
 // 24h: leituras cruas. 7d/30d: médias por hora.
 $periodosValidos = [
@@ -59,6 +15,8 @@ $periodosValidos = [
 ];
 $periodo = isset($_GET['periodo']) && isset($periodosValidos[$_GET['periodo']]) ? $_GET['periodo'] : '24h';
 $config = $periodosValidos[$periodo];
+// Só no 24h: ?desde=<id> devolve apenas as leituras novas (o painel acrescenta ao que já tem).
+$desde = (!$config['agrupar'] && isset($_GET['desde'])) ? max(0, (int) $_GET['desde']) : 0;
 
 // VPD gravado ou, em leituras antigas, calculado na hora.
 $colunaVpd = garantir_schema_v2()
@@ -91,6 +49,7 @@ try {
     } else {
         $stmt = db()->prepare(
             "SELECT
+                id,
                 criado_em,
                 dispositivo_timestamp,
                 temp_interna,
@@ -103,10 +62,11 @@ try {
                 agua_litros,
                 agua_percentual
              FROM leituras_ambiente
-             WHERE criado_em >= NOW() - INTERVAL ? HOUR
-             ORDER BY criado_em ASC"
+             WHERE criado_em >= NOW() - INTERVAL ? HOUR AND id > ?
+             ORDER BY id ASC"
         );
         $stmt->bindValue(1, $config['horas'], PDO::PARAM_INT);
+        $stmt->bindValue(2, $desde, PDO::PARAM_INT);
         $stmt->execute();
         $linhas = $stmt->fetchAll();
     }
@@ -114,7 +74,7 @@ try {
     if (ob_get_length()) {
         ob_clean();
     }
-    echo json_encode(['ok' => true, 'periodo' => $periodo, 'dados' => $linhas]);
+    echo json_encode(['ok' => true, 'periodo' => $periodo, 'desde' => $desde, 'dados' => $linhas]);
 } catch (Throwable $e) {
     if (ob_get_length()) {
         ob_clean();

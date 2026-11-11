@@ -4,7 +4,9 @@
 //  Luz (fotoperíodo + override manual), exaustores, trava de acesso e sensores
 //  de temperatura/umidade do ar e do solo. Interface local: OLED SSD1306 +
 //  botão. Interface remota: dashboard na Hostinger (pasta hostinger/), que o
-//  ESP32 consulta por polling HTTPS — não há servidor HTTP no dispositivo.
+//  ESP32 consulta por HTTPS (conexão reaproveitada), com o estado atual a cada
+//  5 s para o painel ficar ao vivo. A rede roda numa tarefa no núcleo 0; o loop() fica no núcleo 1.
+//  Não há servidor HTTP no dispositivo.
 //  Gravação do firmware só por USB.
 //
 //  WOKWI_SIMULATION: 1 = simulador (DHT22; SSID "Wokwi-GUEST" no secrets.h)
@@ -20,6 +22,7 @@
 //      4 Entrada de Ar (pino 38)  5 Aquecedor (pino 37)  6 Trava  7 Saída de Ar
 //
 //  NVRAM do RTC: bytes 0-7 relés/modo/override da luz, 8-12 horários de luz.
+//  Cópia de tudo isso na flash (NVS "estado"), que não depende da bateria do RTC.
 //  NVS "clima": clima por VPD (fase, faixa de VPD e travas do aquecedor/umidificador).
 //
 //  CALIBRAR NO HARDWARE: SOLO_MV_SECO/SOLO_MV_UMIDO, AGUA_SENSOR_ATE_FUNDO_CM, RELE_ATIVO_EM_BAIXO.
@@ -34,7 +37,7 @@
 #define WOKWI_SIMULATION 0
 
 // Versão enviada ao painel (tela Dispositivo). Atualize a cada nova gravação.
-#define FIRMWARE_VERSAO "2.7.3"
+#define FIRMWARE_VERSAO "2.9.0"
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
 #endif
@@ -43,7 +46,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <LittleFS.h>
+#include <esp_task_wdt.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <WiFiManager.h>
@@ -65,18 +68,6 @@ Preferences prefs;
 String cfgSsid, cfgSenha, cfgUrl, cfgToken, cfgVinculo;
 unsigned long ultimaTentativaVinculoEm = 0;
 
-// ---------------- HISTÓRICO LOCAL (LittleFS, CSV) ----------------
-const char* HISTORICO_ARQUIVO = "/historico.csv";
-const char* HISTORICO_CABECALHO =
-  "timestamp,temp_interna,umid_interna,temp_externa,umid_externa,solo_percentual,"
-  "luz,modo_cultivo,ventilador,entrada_ar,aquecedor,saida_ar,acesso";
-const unsigned long INTERVALO_HISTORICO_MS = 10UL * 60UL * 1000UL; // registra localmente a cada 10 min
-// 7 dias a cada 10 min; o histórico completo fica na Hostinger.
-const int HISTORICO_MAX_LINHAS = 1008;
-unsigned long ultimoRegistroHistoricoEm = 0;
-int historicoTotalLinhas = 0;   // contagem de linhas de dados (sem contar o cabeçalho)
-bool historicoDisponivel = false; // LittleFS montado com sucesso
-
 // Envio de leitura pra Hostinger (independente do histórico local).
 const unsigned long INTERVALO_ENVIO_LEITURA_HOSTINGER_MS = 60UL * 1000UL; // 1 minuto
 unsigned long ultimoEnvioLeituraHostingerEm = 0;
@@ -90,19 +81,99 @@ const unsigned long JANELA_WIFI_INICIAL_MS = 60000;
 const unsigned long NTP_TIMEOUT_MS = 10000;
 const unsigned long RETENTATIVA_NTP_MS = 60000;
 
+// ---------------- PRAZOS COM millis() ----------------
+// millis() volta a zero a cada 49,7 dias. Comparar "millis() >= prazo" falha perto da virada
+// (ex.: a luz manual desligaria na hora). A diferença com sinal continua certa na virada.
+inline bool prazoVencido(unsigned long prazo) { return (long)(millis() - prazo) >= 0; }
+inline unsigned long msAtePrazo(unsigned long prazo) {
+  long restante = (long)(prazo - millis());
+  return restante > 0 ? (unsigned long)restante : 0;
+}
+
 // ---------------- HOSTINGER ----------------
+// Toda a rede (HTTPS) roda numa tarefa própria no núcleo 0 (tarefaRede).
+// O loop() fica no núcleo 1 com sensores, relés, OLED e clima, e nunca espera o servidor.
+// As duas partes conversam só pelo que está protegido por mtxRede e pela fila de comandos.
 const unsigned long HOSTINGER_HTTP_TIMEOUT_MS = 7000;
-const unsigned long INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS = 1000;
+const unsigned long INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS = 250; // eventos saem quase na hora
 const int HOSTINGER_FILA_COMANDOS_MAX = 30;
-String filaComandosHostinger[HOSTINGER_FILA_COMANDOS_MAX];
+String filaComandosHostinger[HOSTINGER_FILA_COMANDOS_MAX];   // protegida por mtxRede
 int filaComandosInicio = 0;
 int filaComandosFim = 0;
 int filaComandosTotal = 0;
-unsigned long ultimoEnvioComandoHostingerEm = 0;
+unsigned long ultimoEnvioComandoHostingerEm = 0;              // só na tarefa de rede
+
+// Estado ao vivo pela própria Hostinger: leituras e relés a cada 5 s em estado_atual.php.
+// O servidor guarda só o último (não cresce o banco); o histórico continua com 1 leitura por minuto.
+const unsigned long INTERVALO_ESTADO_HOSTINGER_MS = 5000;
+unsigned long ultimoEstadoHostingerEm = 0;                    // loop()
 
 // Polling da fila de comandos do dashboard.
 const unsigned long INTERVALO_POLL_COMANDOS_HOSTINGER_MS = 4UL * 1000UL; // 4 segundos
-unsigned long ultimaConsultaComandosPendentesEm = 0;
+unsigned long ultimaConsultaComandosPendentesEm = 0;          // só na tarefa de rede
+
+// ---------------- TAREFA DE REDE (núcleo 0) ----------------
+const uint32_t TAREFA_REDE_PILHA = 16384;  // TLS precisa de pilha folgada
+const UBaseType_t TAREFA_REDE_PRIORIDADE = 1;
+const BaseType_t TAREFA_REDE_NUCLEO = 0;   // o loop() do Arduino roda no núcleo 1
+SemaphoreHandle_t mtxRede = nullptr;       // protege filas e "caixas de correio" abaixo
+QueueHandle_t filaComandosRemotos = nullptr; // rede -> loop(): comandos do painel a aplicar
+
+struct ComandoRemoto {
+  char tipo[24];
+  char alvo[32];
+  char valor[64];
+};
+const int FILA_COMANDOS_REMOTOS_MAX = 16;
+
+// Caixas de correio loop() -> rede (sempre a versão mais recente; protegidas por mtxRede).
+String leituraParaEnviar;
+bool temLeituraParaEnviar = false;
+String estadoParaHostinger;         // estado_atual.php
+bool temEstadoParaHostinger = false;
+// Rede -> loop(): mensagem curta para o OLED (ex.: "Vinculado!").
+char mensagemRedeOLED[24] = "";
+bool temMensagemRedeOLED = false;
+
+// ---------------- VIGIA DA CONEXÃO ----------------
+// O Wi-Fi pode continuar "conectado" sem os dados chegarem ao servidor (roteador sem internet,
+// DNS, memória para TLS esgotada, conexão travada). Antes nada tentava recuperar: o aparelho
+// seguia funcionando localmente sem enviar nada. O vigia (no loop) age em etapas:
+//   3 min sem resposta do servidor  -> derruba e reconecta o Wi-Fi (repete a cada 3 min)
+//   10 min sem resposta             -> reinicia o ESP32 (relés manuais, fase e luz voltam da memória)
+//   tarefa de rede parada há 2 min  -> reinicia o ESP32
+// Depois de 3 reinícios seguidos sem resposta (servidor fora do ar), só reinicia a cada 1 h.
+// Qualquer resposta HTTP conta (até um erro 401/500 prova que a rede chega ao servidor).
+const unsigned long VIGIA_INTERVALO_MS = 10000;
+const unsigned long VIGIA_RECONECTAR_WIFI_MS = 3UL * 60UL * 1000UL;
+const unsigned long VIGIA_REINICIAR_MS = 10UL * 60UL * 1000UL;
+const unsigned long VIGIA_REINICIAR_ESPACADO_MS = 60UL * 60UL * 1000UL;
+const unsigned long VIGIA_TAREFA_TRAVADA_MS = 2UL * 60UL * 1000UL;
+const uint32_t VIGIA_REINICIOS_ANTES_DE_ESPACAR = 3;
+const unsigned long STATUS_REDE_SERIAL_MS = 60000;
+// Watchdog do loop(): se ele parar por mais que isto (ex.: barramento I2C travado), o ESP32 reinicia.
+const uint32_t WATCHDOG_LOOP_S = 15;
+volatile unsigned long ultimaRespostaServidorEm = 0;  // rede: qualquer resposta HTTP
+volatile unsigned long ultimaVoltaTarefaRedeEm = 0;   // rede: prova de vida da tarefa
+volatile uint32_t falhasSeguidasServidor = 0;         // rede
+bool tarefaRedeIniciada = false;
+unsigned long vigiaReferenciaEm = 0;                  // loop(): início da contagem (Wi-Fi conectado)
+unsigned long ultimaVerificacaoVigiaEm = 0;
+unsigned long ultimaReconexaoForcadaEm = 0;
+unsigned long ultimoStatusRedeSerialEm = 0;
+// Sobrevivem ao ESP.restart() (não à falta de energia): por que o vigia reiniciou.
+const uint32_t VIGIA_MARCADOR = 0x56494741;
+RTC_NOINIT_ATTR uint32_t vigiaMarcador;
+RTC_NOINIT_ATTR uint32_t vigiaReiniciosSeguidos;
+RTC_NOINIT_ATTR uint32_t vigiaMotivo;          // 0 = nenhum, 1 = sem resposta do servidor, 2 = tarefa de rede travada
+RTC_NOINIT_ATTR uint32_t vigiaSemRespostaSeg;
+
+// Trava o mutex no construtor e solta no destrutor (não esquece de soltar em return).
+struct TravaRede {
+  TravaRede() { xSemaphoreTake(mtxRede, portMAX_DELAY); }
+  ~TravaRede() { xSemaphoreGive(mtxRede); }
+};
+
 
 // ---------------- PINOS ----------------
 #define SDA_PIN 8
@@ -234,7 +305,8 @@ enum ModoControleLuz { LUZ_AUTOMATICA, LUZ_MANUAL_LIGADA, LUZ_MANUAL_DESLIGADA }
 ModoControleLuz modoControleLuz = LUZ_AUTOMATICA;
 unsigned long overrideLuzAte = 0;
 const unsigned long DURACAO_OVERRIDE_LUZ_MS = 30UL * 60UL * 1000UL; // padrão, se o painel não enviar outra
-int duracaoOverrideLuzMin = 30;  // 15, 30, 60 ou 120 (Configurações → Luz, salvo na memória do RTC)
+int duracaoOverrideLuzMin = 30;  // 15, 30, 60 ou 120 (Configurações → Luz, salvo na flash e no RTC)
+const int DURACAO_LUZ_MANUAL_MAX_MIN = 120;
 unsigned long duracaoOverrideLuzMs() {
   return duracaoOverrideLuzMin > 0 ? (unsigned long)duracaoOverrideLuzMin * 60UL * 1000UL : DURACAO_OVERRIDE_LUZ_MS;
 }
@@ -325,6 +397,7 @@ unsigned long acessoDesligaEm = 0;
 
 // ---------------- STATUS (conectividade e sincronismo) ----------------
 bool rtcDisponivel = false;             // RTC DS1307 detectado no I2C
+bool rtcPerdeuHora = false;             // RTC estava parado ao ligar (sem bateria): hora não confiável até o NTP
 #if !WOKWI_SIMULATION
 bool sht40Disponivel = false;           // SHT40 detectado (hardware)
 #endif
@@ -381,12 +454,12 @@ void restaurarFotoperiodoDaMemoria();
 void registrarEventoFotoperiodo(ModoCultivo modo, const char* origem);
 void definirFotoperiodoRemoto(ModoCultivo modo, int inicioMin);
 void mensagemInicializacao(const String& linha1, const String& linha2 = "");
-void iniciarHistorico();
-void registrarHistorico();
-void rotacionarHistoricoSeNecessario();
-void atualizarHistorico();
 void atualizarComandosPendentesHostinger();
 void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const String& valor);
+int requisicaoHttps(const char* endpoint, const String* corpo, bool comChave, String* resposta);
+void avisarOLEDPelaRede(const char* texto);
+String montarJsonEstado();
+void mostrarMensagemTemporaria(const String& linha1, unsigned long duracaoMs);
 
 // ---------------- VPD ----------------
 // VPD (kPa) = 0.6108 * e^(17.27*T/(T+237.3)) * (1 - UR/100)
@@ -483,7 +556,7 @@ void mostrarMensagemTemporaria(const String& linha1, unsigned long duracaoMs) {
 
 // Fecha a mensagem temporária quando o tempo expira (chamada a cada loop()).
 void atualizarMensagemTemporaria() {
-  if (mensagemTemporariaAtiva && millis() >= mensagemAte) {
+  if (mensagemTemporariaAtiva && prazoVencido(mensagemAte)) {
     mensagemTemporariaAtiva = false;
     atualizarOLED = true;
   }
@@ -522,7 +595,7 @@ void selecionarTelaOLED() {
 
 // Volta à tela de descanso após o tempo sem interação.
 void atualizarTimeoutOLED() {
-  if (estadoOLED != OLED_DESCANSO && oledVoltaDescansoEm > 0 && millis() >= oledVoltaDescansoEm) {
+  if (estadoOLED != OLED_DESCANSO && oledVoltaDescansoEm != 0 && prazoVencido(oledVoltaDescansoEm)) {
     estadoOLED = OLED_DESCANSO;
     mensagemTemporariaAtiva = false;
     oledVoltaDescansoEm = 0;
@@ -1081,7 +1154,7 @@ void beep(unsigned long tempo) {
 }
 
 void atualizarBuzzer() {
-  if (buzzerLigado && millis() >= buzzerDesligaEm) {
+  if (buzzerLigado && prazoVencido(buzzerDesligaEm)) {
     digitalWrite(BUZZER, LOW);
     buzzerLigado = false;
   }
@@ -1259,7 +1332,7 @@ void liberarAcessoRemoto() {
 }
 
 void atualizarAcesso() {
-  if (acessoAtivo && millis() >= acessoDesligaEm) {
+  if (acessoAtivo && prazoVencido(acessoDesligaEm)) {
     acionarRele(RELE_ACESSO, false);
     acessoAtivo = false;
     atualizarOLED = true;
@@ -1280,8 +1353,60 @@ const uint8_t NVRAM_MODO_LUZ_AUTO = 0;
 const uint8_t NVRAM_MODO_LUZ_LIGADA = 1;
 const uint8_t NVRAM_MODO_LUZ_DESLIGADA = 2;
 
+// ---------------- PERSISTÊNCIA EM DOIS LUGARES ----------------
+// A memória do DS1307 só se mantém com a bateria do módulo: sem ela, uma falta de energia
+// apagava relés, fase e horários de luz. Por isso cada bloco vai também para a flash do ESP32
+// (NVS "estado"), que não depende de bateria. A flash só é gravada quando o conteúdo muda.
+void gravarBlocoEstado(const char* chave, uint8_t endereco, const uint8_t* buffer, size_t tamanho) {
+  if (rtcDisponivel) rtc.writenvram(endereco, (uint8_t*)buffer, tamanho);
+  Preferences p;
+  if (!p.begin("estado", false)) return;
+  uint8_t atual[16];
+  bool igual = tamanho <= sizeof(atual) && p.getBytesLength(chave) == tamanho &&
+               p.getBytes(chave, atual, tamanho) == tamanho && memcmp(atual, buffer, tamanho) == 0;
+  if (!igual) p.putBytes(chave, buffer, tamanho);
+  p.end();
+}
+
+// Lê da flash; se ainda não houver cópia (primeiro boot depois de atualizar), da memória do RTC.
+bool lerBlocoEstado(const char* chave, uint8_t endereco, uint8_t* buffer, size_t tamanho, const char*& origem) {
+  Preferences p;
+  if (p.begin("estado", true)) {
+    bool ok = p.getBytesLength(chave) == tamanho && p.getBytes(chave, buffer, tamanho) == tamanho;
+    p.end();
+    if (ok) {
+      origem = "flash";
+      return true;
+    }
+  }
+  if (!rtcDisponivel) return false;
+  rtc.readnvram(buffer, tamanho, endereco);
+  origem = "RTC";
+  return true;
+}
+
+// Último estado da luz (para o boot não apagar a luz enquanto a hora não é conhecida).
+bool lerLuzSalva() {
+  Preferences p;
+  if (!p.begin("estado", true)) return false;
+  bool ligada = p.getUChar("luz", 0) == 1;
+  p.end();
+  return ligada;
+}
+
+void salvarLuz(bool ligada) {
+  Preferences p;
+  if (!p.begin("estado", false)) return;
+  if (p.getUChar("luz", 255) != (ligada ? 1 : 0)) p.putUChar("luz", ligada ? 1 : 0);
+  p.end();
+}
+
+// Hora em que dá para confiar: NTP ou RTC que não parou.
+bool horaConfiavel() {
+  return horaSincronizada || (rtcDisponivel && !rtcPerdeuHora);
+}
+
 void salvarEstadoNaMemoria() {
-  if (!rtcDisponivel) return;
 
   uint8_t bitmaskReles = 0;
   for (int i = 0; i < TOTAL_RELES; i++) {
@@ -1296,7 +1421,7 @@ void salvarEstadoNaMemoria() {
   uint32_t expiraUnix = 0;
   if (modoControleLuz != LUZ_AUTOMATICA) {
     modoLuzByte = (modoControleLuz == LUZ_MANUAL_LIGADA) ? NVRAM_MODO_LUZ_LIGADA : NVRAM_MODO_LUZ_DESLIGADA;
-    unsigned long restanteMs = (overrideLuzAte > millis()) ? (overrideLuzAte - millis()) : 0;
+    unsigned long restanteMs = msAtePrazo(overrideLuzAte);
     expiraUnix = obterAgora().unixtime() + (restanteMs / 1000UL);
   }
 
@@ -1310,16 +1435,19 @@ void salvarEstadoNaMemoria() {
   buffer[6] = (uint8_t)(expiraUnix >> 8);
   buffer[7] = (uint8_t)(expiraUnix);
 
-  rtc.writenvram(NVRAM_ENDERECO_BASE, buffer, NVRAM_TAMANHO);
+  gravarBlocoEstado("reles", NVRAM_ENDERECO_BASE, buffer, NVRAM_TAMANHO);
 }
 
 void restaurarEstadoDaMemoria() {
-  if (!rtcDisponivel) return;
-
   uint8_t buffer[NVRAM_TAMANHO];
-  rtc.readnvram(buffer, NVRAM_TAMANHO, NVRAM_ENDERECO_BASE);
+  const char* origem = "";
+  if (!lerBlocoEstado("reles", NVRAM_ENDERECO_BASE, buffer, NVRAM_TAMANHO, origem)) {
+    Serial.println("Sem estado salvo (nem flash nem RTC) - mantendo padroes de fabrica");
+    return;
+  }
 
-  Serial.print("NVRAM lida - marcador=0x");
+  Serial.printf("Estado lido da %s - ", origem);
+  Serial.print("marcador=0x");
   Serial.print(buffer[0], HEX);
   Serial.print(" bitmask=0x");
   Serial.print(buffer[1], HEX);
@@ -1341,7 +1469,8 @@ void restaurarEstadoDaMemoria() {
     if (bit3) bitmaskReles |= (1 << 1);
     Serial.println("NVRAM no layout antigo - reles 1 e 3 convertidos (umidificador agora no rele 3)");
   } else if (buffer[0] != NVRAM_MARCADOR_VALIDO) {
-    Serial.println("NVRAM sem marcador valido - mantendo padroes de fabrica");
+    Serial.println("NVRAM sem marcador valido - mantendo padroes de fabrica "
+                   "(memoria do RTC zerada? confira a bateria do modulo do relogio)");
     return;
   }
 
@@ -1368,15 +1497,18 @@ void restaurarEstadoDaMemoria() {
     uint32_t agoraUnix = obterAgora().unixtime();
 
     if (expiraUnix > agoraUnix) {
+      // Limita ao maior tempo possível do modo manual: se o RTC perdeu a hora (sem bateria),
+      // "agora" é a hora da compilação e a diferença pode passar de dias.
+      uint32_t restanteSeg = min(expiraUnix - agoraUnix, (uint32_t)(DURACAO_LUZ_MANUAL_MAX_MIN * 60UL));
       modoControleLuz = (modoLuzByte == NVRAM_MODO_LUZ_LIGADA) ? LUZ_MANUAL_LIGADA : LUZ_MANUAL_DESLIGADA;
-      overrideLuzAte = millis() + ((unsigned long)(expiraUnix - agoraUnix) * 1000UL);
+      overrideLuzAte = millis() + restanteSeg * 1000UL;
       Serial.println("Override manual da luz restaurado da NVRAM (ainda nao expirou)");
     } else {
       Serial.println("Override manual da luz tinha expirado durante o desligamento - mantendo automatico");
     }
   }
 
-  Serial.println("Estado dos reles e modo de cultivo restaurados da memoria do RTC");
+  Serial.println("Estado dos reles e modo de cultivo restaurados");
   atualizarOLED = true;
 }
 
@@ -1401,21 +1533,20 @@ bool inicioLuzValido(int minutos) {
 }
 
 void salvarFotoperiodoNaMemoria() {
-  if (!rtcDisponivel) return;
   uint8_t buffer[NVRAM_FOTO_TAMANHO];
   buffer[0] = NVRAM_FOTO_MARCADOR;
   buffer[1] = (uint8_t)(inicioLuzVegetacaoMin >> 8);
   buffer[2] = (uint8_t)(inicioLuzVegetacaoMin & 0xFF);
   buffer[3] = (uint8_t)(inicioLuzFloracaoMin >> 8);
   buffer[4] = (uint8_t)(inicioLuzFloracaoMin & 0xFF);
-  rtc.writenvram(NVRAM_FOTO_ENDERECO, buffer, NVRAM_FOTO_TAMANHO);
+  gravarBlocoEstado("foto", NVRAM_FOTO_ENDERECO, buffer, NVRAM_FOTO_TAMANHO);
 }
 
 void restaurarFotoperiodoDaMemoria() {
-  if (!rtcDisponivel) return;
   uint8_t buffer[NVRAM_FOTO_TAMANHO];
-  rtc.readnvram(buffer, NVRAM_FOTO_TAMANHO, NVRAM_FOTO_ENDERECO);
-  if (buffer[0] != NVRAM_FOTO_MARCADOR) {
+  const char* origem = "";
+  if (!lerBlocoEstado("foto", NVRAM_FOTO_ENDERECO, buffer, NVRAM_FOTO_TAMANHO, origem) ||
+      buffer[0] != NVRAM_FOTO_MARCADOR) {
     Serial.println("NVRAM sem fotoperiodo salvo - usando horarios padrao (16h veg / 19h flora)");
     return;
   }
@@ -1423,7 +1554,7 @@ void restaurarFotoperiodoDaMemoria() {
   int flora = ((int)buffer[3] << 8) | buffer[4];
   if (inicioLuzValido(veg)) inicioLuzVegetacaoMin = veg;
   if (inicioLuzValido(flora)) inicioLuzFloracaoMin = flora;
-  Serial.printf("Fotoperiodo restaurado: veg inicia %02d:%02d, flora inicia %02d:%02d\n",
+  Serial.printf("Fotoperiodo restaurado da %s: veg inicia %02d:%02d, flora inicia %02d:%02d\n", origem,
                 inicioLuzVegetacaoMin / 60, inicioLuzVegetacaoMin % 60,
                 inicioLuzFloracaoMin / 60, inicioLuzFloracaoMin % 60);
 }
@@ -1433,20 +1564,20 @@ const uint8_t NVRAM_LUZ_ENDERECO = 13;
 const uint8_t NVRAM_LUZ_MARCADOR = 0x6C;
 
 bool duracaoLuzValida(int minutos) {
+  // Opções do painel: 15, 30, 60 ou DURACAO_LUZ_MANUAL_MAX_MIN (120).
   return minutos == 15 || minutos == 30 || minutos == 60 || minutos == 120;
 }
 
 void salvarDuracaoLuzNaMemoria() {
-  if (!rtcDisponivel) return;
   uint8_t buffer[2] = { NVRAM_LUZ_MARCADOR, (uint8_t)duracaoOverrideLuzMin };
-  rtc.writenvram(NVRAM_LUZ_ENDERECO, buffer, 2);
+  gravarBlocoEstado("luzdur", NVRAM_LUZ_ENDERECO, buffer, 2);
 }
 
 void restaurarDuracaoLuzDaMemoria() {
-  if (!rtcDisponivel) return;
   uint8_t buffer[2];
-  rtc.readnvram(buffer, 2, NVRAM_LUZ_ENDERECO);
-  if (buffer[0] == NVRAM_LUZ_MARCADOR && duracaoLuzValida(buffer[1])) {
+  const char* origem = "";
+  if (lerBlocoEstado("luzdur", NVRAM_LUZ_ENDERECO, buffer, 2, origem) &&
+      buffer[0] == NVRAM_LUZ_MARCADOR && duracaoLuzValida(buffer[1])) {
     duracaoOverrideLuzMin = buffer[1];
   }
   Serial.printf("Modo manual da luz: %d min\n", duracaoOverrideLuzMin);
@@ -1763,11 +1894,13 @@ void carregarConfigRede() {
   while (cfgUrl.endsWith("/")) cfgUrl.remove(cfgUrl.length() - 1);
 }
 
+// Usa um Preferences local: também é chamada pela tarefa de rede (vínculo).
 void salvarConfigRede(const char* chave, const String& valor) {
-  prefs.begin("sdemetra", false);
-  if (valor.length() > 0) prefs.putString(chave, valor);
-  else prefs.remove(chave);
-  prefs.end();
+  Preferences p;
+  p.begin("sdemetra", false);
+  if (valor.length() > 0) p.putString(chave, valor);
+  else p.remove(chave);
+  p.end();
 }
 
 bool redeConfigurada() {
@@ -1830,17 +1963,11 @@ void abrirPortalConfiguracao() {
 }
 
 // Troca o token de vinculação pelo token definitivo (uma vez, no primeiro contato).
+// Roda na tarefa de rede: cfgUrl/cfgToken/cfgVinculo só são tocados por ela depois do setup().
 void atualizarVinculoHostinger() {
-  if (cfgVinculo.length() == 0 || !wifiConectado || WiFi.status() != WL_CONNECTED) return;
+  if (cfgVinculo.length() == 0 || WiFi.status() != WL_CONNECTED) return;
   if (ultimaTentativaVinculoEm != 0 && millis() - ultimaTentativaVinculoEm < RETENTATIVA_VINCULO_MS) return;
   ultimaTentativaVinculoEm = millis();
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  if (!http.begin(client, cfgUrl + "/vincular.php")) return;
-  http.setTimeout(HOSTINGER_HTTP_TIMEOUT_MS);
-  http.addHeader("Content-Type", "application/json");
 
   String payload = "{";
   payload += "\"codigo\":\"" + escaparJson(cfgVinculo) + "\",";
@@ -1849,12 +1976,11 @@ void atualizarVinculoHostinger() {
   payload += "\"mac\":\"" + escaparJson(WiFi.macAddress()) + "\"";
   payload += "}";
 
-  int status = http.POST(payload);
-  String resposta = http.getString();
-  http.end();
+  String resposta;
+  int status = requisicaoHttps("/vincular.php", &payload, false, &resposta);
 
   if (status == 200) {
-    StaticJsonDocument<256> doc;
+    JsonDocument doc;
     if (!deserializeJson(doc, resposta) && doc["token"].is<const char*>()) {
       String token = doc["token"].as<String>();
       if (token.startsWith(TOKEN_HW_PREFIXO)) {
@@ -1863,7 +1989,7 @@ void atualizarVinculoHostinger() {
         cfgToken = token;
         cfgVinculo = "";
         Serial.println("Dispositivo vinculado ao painel");
-        mostrarMensagemTemporaria("Vinculado!", 2500);
+        avisarOLEDPelaRede("Vinculado!");
       }
     }
   } else if (status == 403) {
@@ -1871,7 +1997,7 @@ void atualizarVinculoHostinger() {
     salvarConfigRede("vinculo", "");
     cfgVinculo = "";
     Serial.println("Token de vinculacao invalido ou expirado");
-    mostrarMensagemTemporaria("Vinculo invalido", 2500);
+    avisarOLEDPelaRede("Vinculo invalido");
   } else {
     Serial.printf("Vinculo: HTTP %d, tentando de novo em 30 s\n", status);
   }
@@ -1941,12 +2067,8 @@ const char* SERVIDORES_NTP[] = {
 const int TOTAL_SERVIDORES_NTP = sizeof(SERVIDORES_NTP) / sizeof(SERVIDORES_NTP[0]);
 int indiceServidorNTP = 0;
 
-// Alterna pares de servidores NTP a cada falha; ajusta o RTC ao sincronizar.
-bool sincronizarHoraNTP() {
-  if (!wifiConectado) {
-    return false;
-  }
-
+// Pede a hora ao par de servidores da vez (não espera a resposta).
+void iniciarNTP() {
   const char* servidorPrimario = SERVIDORES_NTP[indiceServidorNTP % TOTAL_SERVIDORES_NTP];
   const char* servidorSecundario = SERVIDORES_NTP[(indiceServidorNTP + 1) % TOTAL_SERVIDORES_NTP];
 
@@ -1956,21 +2078,42 @@ bool sincronizarHoraNTP() {
   Serial.println(servidorSecundario);
 
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, servidorPrimario, servidorSecundario);
+}
 
-  struct tm timeinfo;
-  unsigned long inicio = millis();
-  while (!getLocalTime(&timeinfo) && millis() - inicio < NTP_TIMEOUT_MS) {
-    delay(250);
-  }
+void falhaNTP() {
+  Serial.println("NTP: falhou (timeout). Se isso se repetir com todos os servidores, "
+                  "a rede provavelmente bloqueia a porta UDP 123 (comum em redes "
+                  "corporativas/escolares) - teste com outra rede (ex: hotspot do celular).");
+  indiceServidorNTP++; // roda para outro par de servidores na próxima tentativa
+}
 
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("NTP: falhou (timeout). Se isso se repetir com todos os servidores, "
-                    "a rede provavelmente bloqueia a porta UDP 123 (comum em redes "
-                    "corporativas/escolares) - teste com outra rede (ex: hotspot do celular).");
-    indiceServidorNTP++; // roda para outro par de servidores na próxima tentativa
+void concluirNTP(struct tm& timeinfo);
+
+// Versão bloqueante (só no setup). Alterna pares de servidores a cada falha; ajusta o RTC.
+bool sincronizarHoraNTP() {
+  if (!wifiConectado) {
     return false;
   }
 
+  iniciarNTP();
+
+  struct tm timeinfo;
+  unsigned long inicio = millis();
+  while (!getLocalTime(&timeinfo, 0) && millis() - inicio < NTP_TIMEOUT_MS) {
+    delay(250);
+  }
+
+  if (!getLocalTime(&timeinfo, 0)) {
+    falhaNTP();
+    return false;
+  }
+
+  concluirNTP(timeinfo);
+  return true;
+}
+
+// Hora recebida: mostra no serial, ajusta o RTC e passa a usar o relógio do ESP32.
+void concluirNTP(struct tm& timeinfo) {
   char bufferHora[32];
   snprintf(bufferHora, sizeof(bufferHora), "%04d-%02d-%02d %02d:%02d:%02d",
     timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
@@ -1991,18 +2134,35 @@ bool sincronizarHoraNTP() {
   }
 
   horaSincronizada = true;
-  return true;
 }
 
-// Repete o NTP até a primeira sincronização.
+// Repete o NTP até a primeira sincronização, sem travar o loop(): pede a hora
+// e confere a cada volta se ela chegou, até NTP_TIMEOUT_MS.
+bool ntpEmAndamento = false;
+unsigned long ntpIniciadoEm = 0;
 void atualizarSincronizacaoHora() {
-  if (horaSincronizada) return;
-  if (!wifiConectado) return;
-  if (millis() - ultimaTentativaNTP < RETENTATIVA_NTP_MS) return;
+  if (horaSincronizada || !wifiConectado) {
+    ntpEmAndamento = false;
+    return;
+  }
 
-  ultimaTentativaNTP = millis();
-  if (sincronizarHoraNTP()) {
+  if (!ntpEmAndamento) {
+    if (millis() - ultimaTentativaNTP < RETENTATIVA_NTP_MS) return;
+    ultimaTentativaNTP = millis();
+    iniciarNTP();
+    ntpEmAndamento = true;
+    ntpIniciadoEm = millis();
+    return;
+  }
+
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 0)) {
+    ntpEmAndamento = false;
+    concluirNTP(timeinfo);
     atualizarOLED = true;
+  } else if (millis() - ntpIniciadoEm >= NTP_TIMEOUT_MS) {
+    ntpEmAndamento = false;
+    falhaNTP();
   }
 }
 
@@ -2070,26 +2230,61 @@ String escaparJson(const String& valor) {
   return saida;
 }
 
-bool enviarJsonHostinger(const char* endpoint, const String& payload) {
-  if (!wifiConectado || WiFi.status() != WL_CONNECTED) {
-    return false;
+// ===================== REDE: HTTPS reaproveitado (tarefa de rede) =====================
+// Uma única conexão TLS com a Hostinger, mantida aberta entre as requisições (keep-alive).
+// Antes cada requisição abria uma conexão nova (0,5 a 2 s de negociação no ESP32).
+// O HTTPClient também é global: o destrutor dele fecharia a conexão.
+WiFiClientSecure clienteHttps;
+HTTPClient httpRede;
+bool httpsPreparado = false;
+
+// POST (corpo != nullptr) ou GET em cfgUrl + endpoint. Devolve o status HTTP (<= 0 = falha de rede).
+// Se a conexão guardada tiver sido fechada pelo servidor, tenta de novo uma vez com uma conexão nova.
+int requisicaoHttps(const char* endpoint, const String* corpo, bool comChave, String* resposta) {
+  if (WiFi.status() != WL_CONNECTED) return -1;
+  if (!httpsPreparado) {
+    clienteHttps.setInsecure(); // HTTPS sem fixar certificado, mais simples para hospedagem compartilhada.
+    clienteHttps.setHandshakeTimeout(15); // padrão de 120 s seguraria a tarefa de rede
+    httpRede.setReuse(true);
+    httpsPreparado = true;
   }
 
-  WiFiClientSecure client;
-  client.setInsecure(); // HTTPS sem fixar certificado, mais simples para hospedagem compartilhada.
-
-  HTTPClient http;
   String url = cfgUrl + endpoint;
-  if (!http.begin(client, url)) {
-    Serial.println("Hostinger: falha ao iniciar HTTP");
-    return false;
+  int status = -1;
+  for (int tentativa = 0; tentativa < 2; tentativa++) {
+    ultimaVoltaTarefaRedeEm = millis(); // uma requisição longa não é "tarefa travada"
+    if (!httpRede.begin(clienteHttps, url)) {
+      Serial.println("Hostinger: falha ao iniciar HTTP");
+      return -1;
+    }
+    httpRede.setTimeout(HOSTINGER_HTTP_TIMEOUT_MS);
+    if (comChave) httpRede.addHeader("X-API-Key", chaveServidor());
+    if (corpo) {
+      httpRede.addHeader("Content-Type", "application/json");
+      status = httpRede.POST(*corpo);
+    } else {
+      status = httpRede.GET();
+    }
+    if (status > 0) {
+      if (resposta) *resposta = httpRede.getString();
+      httpRede.end();
+      ultimaRespostaServidorEm = millis();
+      falhasSeguidasServidor = 0;
+      return status;
+    }
+    // Falha de rede (ex.: o servidor fechou a conexão parada): descarta e tenta de novo.
+    httpRede.end();
+    clienteHttps.stop();
   }
+  falhasSeguidasServidor = falhasSeguidasServidor + 1;
+  Serial.printf("Hostinger: sem resposta em %s (%s) | heap livre %u, maior bloco %u\n",
+                endpoint, HTTPClient::errorToString(status).c_str(),
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+  return status;
+}
 
-  http.setTimeout(HOSTINGER_HTTP_TIMEOUT_MS);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", chaveServidor());
-
-  int status = http.POST(payload);
+bool enviarJsonHostinger(const char* endpoint, const String& payload) {
+  int status = requisicaoHttps(endpoint, &payload, true, nullptr);
   bool ok = status >= 200 && status < 300;
   if (!ok) {
     Serial.print("Hostinger: erro HTTP ");
@@ -2097,11 +2292,12 @@ bool enviarJsonHostinger(const char* endpoint, const String& payload) {
     Serial.print(" em ");
     Serial.println(endpoint);
   }
-
-  http.end();
   return ok;
 }
 
+// ===================== loop() -> rede =====================
+// Monta a leitura no loop() (lê os sensores e o RTC no próprio núcleo) e deixa na
+// caixa de correio; a tarefa de rede envia quando puder.
 void enviarLeituraHostinger() {
   String payload = "{";
   payload += "\"timestamp\":\"" + escaparJson(obterTimestampAtual()) + "\",";
@@ -2121,19 +2317,9 @@ void enviarLeituraHostinger() {
   payload += "\"uptime\":" + String((unsigned long)(millis() / 1000UL));
   payload += "}";
 
-  enviarJsonHostinger("/registrar_leitura.php", payload);
-}
-
-void enviarComandoHostinger(const char* tipo, const char* alvo, const String& valor, const char* origem) {
-  String payload = "{";
-  payload += "\"timestamp\":\"" + escaparJson(obterTimestampAtual()) + "\",";
-  payload += "\"tipo\":\"" + escaparJson(tipo) + "\",";
-  payload += "\"alvo\":\"" + escaparJson(alvo) + "\",";
-  payload += "\"valor\":\"" + escaparJson(valor) + "\",";
-  payload += "\"origem\":\"" + escaparJson(origem) + "\"";
-  payload += "}";
-
-  enviarJsonHostinger("/registrar_comando.php", payload);
+  TravaRede trava;
+  leituraParaEnviar = payload;
+  temLeituraParaEnviar = true;
 }
 
 void enfileirarComandoHostinger(const char* tipo, const char* alvo, const String& valor, const char* origem) {
@@ -2145,6 +2331,7 @@ void enfileirarComandoHostinger(const char* tipo, const char* alvo, const String
   payload += "\"origem\":\"" + escaparJson(origem) + "\"";
   payload += "}";
 
+  TravaRede trava;
   if (filaComandosTotal >= HOSTINGER_FILA_COMANDOS_MAX) {
     filaComandosInicio = (filaComandosInicio + 1) % HOSTINGER_FILA_COMANDOS_MAX;
     filaComandosTotal--;
@@ -2156,19 +2343,232 @@ void enfileirarComandoHostinger(const char* tipo, const char* alvo, const String
   filaComandosTotal++;
 }
 
+// Estado atual a cada 5 s para a Hostinger (estado_atual.php). É o que deixa o painel
+// "ao vivo" sem nenhum serviço extra. Vai pela mesma conexão HTTPS, que fica aberta.
+void atualizarEstadoHostinger() {
+  if (millis() - ultimoEstadoHostingerEm < INTERVALO_ESTADO_HOSTINGER_MS) return;
+  ultimoEstadoHostingerEm = millis();
+  String json = montarJsonEstado();
+  TravaRede trava;
+  estadoParaHostinger = json;
+  temEstadoParaHostinger = true;
+}
+
+// JSON do estado atual: mesmos nomes de campo das leituras do banco, mais fase, luz e relés.
+// Montado no loop() (núcleo 1), que é dono dos sensores, dos relés e do RTC.
+String montarJsonEstado() {
+  float vpd = (isnan(tempAtual) || isnan(umidAtual)) ? NAN : calcularVPD(tempAtual, umidAtual);
+  String json = "{";
+  json += "\"dispositivo_timestamp\":\"" + escaparJson(obterTimestampAtual()) + "\",";
+  json += "\"temp_interna\":" + valorJsonFloat(tempAtual, 1) + ",";
+  json += "\"umid_interna\":" + valorJsonFloat(umidAtual, 0) + ",";
+  json += "\"temp_externa\":" + valorJsonFloat(tempExterna, 1) + ",";
+  json += "\"umid_externa\":" + valorJsonFloat(umidExterna, 0) + ",";
+  json += "\"vpd\":" + valorJsonFloat(vpd, 2) + ",";
+  json += "\"solo_percentual\":" + (soloValido ? String(soloPercentual) : String("null")) + ",";
+  json += "\"agua_distancia_cm\":" + valorJsonFloat(aguaDistanciaCm, 1) + ",";
+  json += "\"agua_litros\":" + valorJsonFloat(aguaLitros, 1) + ",";
+  json += "\"agua_percentual\":" + (isnan(aguaPercentual) ? String("null") : String((int)roundf(aguaPercentual))) + ",";
+  json += "\"modo_cultivo\":\"" + String(modoAtual == FLORACAO ? "floracao" : "vegetativo") + "\",";
+  json += "\"luz_controle\":\"" + String(modoControleLuz == LUZ_AUTOMATICA ? "auto" : (modoControleLuz == LUZ_MANUAL_LIGADA ? "ligada" : "desligada")) + "\",";
+  json += "\"reles\":{";
+  for (int i = 0; i < TOTAL_RELES; i++) {
+    if (i) json += ",";
+    json += "\"" + escaparJson(nomeReleControle(i)) + "\":" + (estadoReles[i] ? "1" : "0");
+  }
+  json += "}";
+  json += "}";
+  return json;
+}
+
+// ===================== rede -> loop() =====================
+// Comandos do painel chegam pela tarefa de rede e são aplicados aqui, no núcleo 1,
+// junto com o resto da lógica dos relés (nada de mexer em relé pelo núcleo 0).
+void processarComandosRemotos() {
+  ComandoRemoto c;
+  while (xQueueReceive(filaComandosRemotos, &c, 0) == pdTRUE) {
+    aplicarComandoRemotoWeb(String(c.tipo), String(c.alvo), String(c.valor));
+  }
+}
+
+void avisarOLEDPelaRede(const char* texto) {
+  TravaRede trava;
+  strlcpy(mensagemRedeOLED, texto, sizeof(mensagemRedeOLED));
+  temMensagemRedeOLED = true;
+}
+
+void mostrarMensagemDaRede() {
+  char texto[sizeof(mensagemRedeOLED)];
+  {
+    TravaRede trava;
+    if (!temMensagemRedeOLED) return;
+    strlcpy(texto, mensagemRedeOLED, sizeof(texto));
+    temMensagemRedeOLED = false;
+  }
+  mostrarMensagemTemporaria(texto, 2500);
+}
+
+// ===================== tarefa de rede (núcleo 0) =====================
 void atualizarFilaComandosHostinger() {
-  if (filaComandosTotal <= 0) return;
   if (millis() - ultimoEnvioComandoHostingerEm < INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS) return;
 
+  String payload;
+  {
+    TravaRede trava;
+    if (filaComandosTotal <= 0) return;
+    payload = filaComandosHostinger[filaComandosInicio];
+  }
+
   ultimoEnvioComandoHostingerEm = millis();
-  String payload = filaComandosHostinger[filaComandosInicio];
   if (!enviarJsonHostinger("/registrar_comando.php", payload)) {
     return;
   }
 
-  filaComandosHostinger[filaComandosInicio] = "";
-  filaComandosInicio = (filaComandosInicio + 1) % HOSTINGER_FILA_COMANDOS_MAX;
-  filaComandosTotal--;
+  // Tira da fila só depois de enviado. Se a fila transbordou enquanto enviava,
+  // o item já foi descartado pelo enfileirar e não há o que tirar.
+  TravaRede trava;
+  if (filaComandosTotal > 0 && filaComandosHostinger[filaComandosInicio] == payload) {
+    filaComandosHostinger[filaComandosInicio] = "";
+    filaComandosInicio = (filaComandosInicio + 1) % HOSTINGER_FILA_COMANDOS_MAX;
+    filaComandosTotal--;
+  }
+}
+
+void atualizarEnvioEstadoRede() {
+  String payload;
+  {
+    TravaRede trava;
+    if (!temEstadoParaHostinger) return;
+    payload = estadoParaHostinger;
+    temEstadoParaHostinger = false;
+  }
+  // Estado perdido não é reenviado: o próximo vem em 5 s.
+  enviarJsonHostinger("/estado_atual.php", payload);
+}
+
+void atualizarEnvioLeituraRede() {
+  String payload;
+  {
+    TravaRede trava;
+    if (!temLeituraParaEnviar) return;
+    payload = leituraParaEnviar;
+    temLeituraParaEnviar = false;
+  }
+  // Uma leitura perdida não é reenviada: a próxima chega em 1 min (como antes).
+  enviarJsonHostinger("/registrar_leitura.php", payload);
+}
+
+void atualizarComandosPendentesHostinger();
+
+void tarefaRede(void* parametro) {
+  (void)parametro;
+  for (;;) {
+    ultimaVoltaTarefaRedeEm = millis();
+    if (WiFi.status() == WL_CONNECTED) {
+      atualizarVinculoHostinger();
+      atualizarFilaComandosHostinger(); // eventos primeiro: o painel confirma os comandos por eles
+      atualizarEnvioEstadoRede();
+      atualizarEnvioLeituraRede();
+      atualizarComandosPendentesHostinger();
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
+void iniciarTarefaRede() {
+  filaComandosRemotos = xQueueCreate(FILA_COMANDOS_REMOTOS_MAX, sizeof(ComandoRemoto));
+  ultimaVoltaTarefaRedeEm = millis();
+  vigiaReferenciaEm = millis();
+  xTaskCreatePinnedToCore(tarefaRede, "rede", TAREFA_REDE_PILHA, nullptr,
+                          TAREFA_REDE_PRIORIDADE, nullptr, TAREFA_REDE_NUCLEO);
+  tarefaRedeIniciada = true;
+}
+
+// ===================== vigia da conexão (loop) =====================
+void reiniciarPeloVigia(uint32_t motivo, unsigned long semRespostaSeg) {
+  vigiaMarcador = VIGIA_MARCADOR;
+  vigiaReiniciosSeguidos = vigiaReiniciosSeguidos + 1;
+  vigiaMotivo = motivo;
+  vigiaSemRespostaSeg = semRespostaSeg;
+  Serial.printf("VIGIA: %s ha %lu s - reiniciando o ESP32 (reinicio seguido n. %u)\n",
+                motivo == 2 ? "tarefa de rede parada" : "sem resposta do servidor",
+                semRespostaSeg, (unsigned)vigiaReiniciosSeguidos);
+  Serial.flush();
+  delay(200);
+  ESP.restart();
+}
+
+// No boot: lê o motivo deixado pelo vigia e avisa o painel (o evento sai quando a rede voltar).
+void iniciarVigiaRede() {
+  if (vigiaMarcador != VIGIA_MARCADOR) { // primeiro boot ou falta de energia: memória com lixo
+    vigiaMarcador = VIGIA_MARCADOR;
+    vigiaReiniciosSeguidos = 0;
+    vigiaMotivo = 0;
+    vigiaSemRespostaSeg = 0;
+    return;
+  }
+  // Reinício pelo watchdog do loop (o controle travou): avisa o painel.
+  esp_reset_reason_t motivoReset = esp_reset_reason();
+  if (motivoReset == ESP_RST_TASK_WDT || motivoReset == ESP_RST_INT_WDT || motivoReset == ESP_RST_WDT) {
+    Serial.printf("VIGIA: este boot veio do watchdog (motivo %d) - o loop travou\n", (int)motivoReset);
+    enfileirarComandoHostinger("dispositivo", "conexao", "recuperacao:loop:0", "vigia");
+  }
+  if (vigiaMotivo != 0) {
+    Serial.printf("VIGIA: este boot foi um reinicio automatico (motivo %u, %u s sem resposta)\n",
+                  (unsigned)vigiaMotivo, (unsigned)vigiaSemRespostaSeg);
+    String valor = String(vigiaMotivo == 2 ? "recuperacao:travada:" : "recuperacao:reinicio:") + String(vigiaSemRespostaSeg);
+    enfileirarComandoHostinger("dispositivo", "conexao", valor, "vigia");
+    vigiaMotivo = 0;
+  }
+}
+
+void atualizarVigiaRede() {
+  unsigned long agora = millis();
+
+  // O servidor respondeu: zera a sequência de reinícios.
+  if (ultimaRespostaServidorEm != 0 && vigiaReiniciosSeguidos != 0) vigiaReiniciosSeguidos = 0;
+
+  if (agora - ultimoStatusRedeSerialEm >= STATUS_REDE_SERIAL_MS) {
+    ultimoStatusRedeSerialEm = agora;
+    unsigned long ref = ultimaRespostaServidorEm;
+    Serial.printf("Rede: WiFi %s (%d dBm) | ultima resposta do servidor %s%lu s | falhas seguidas %u | heap livre %u, maior bloco %u\n",
+                  wifiConectado ? "ok" : "desconectado", wifiConectado ? WiFi.RSSI() : 0,
+                  ref ? "ha " : "nunca, ", ref ? (agora - ref) / 1000 : agora / 1000,
+                  (unsigned)falhasSeguidasServidor, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+  }
+
+  if (agora - ultimaVerificacaoVigiaEm < VIGIA_INTERVALO_MS) return;
+  ultimaVerificacaoVigiaEm = agora;
+  if (!tarefaRedeIniciada) return;
+
+  // Tarefa de rede presa numa chamada (nenhuma passa de ~45 s com os timeouts).
+  unsigned long voltaRede = ultimaVoltaTarefaRedeEm;
+  if (agora - voltaRede > VIGIA_TAREFA_TRAVADA_MS) reiniciarPeloVigia(2, (agora - voltaRede) / 1000);
+
+  // Wi-Fi caído é com o atualizarConexaoWiFi(); sem servidor configurado não há o que vigiar.
+  // A queda provocada pelo próprio vigia não zera a contagem (senão nunca chegaria aos 10 min);
+  // só uma queda real (mais de 1 min depois da reconexão forçada) recomeça a contagem.
+  if (!wifiConectado || cfgUrl.length() == 0) {
+    bool quedaDoVigia = ultimaReconexaoForcadaEm != 0 && agora - ultimaReconexaoForcadaEm < 60000UL;
+    if (!quedaDoVigia) vigiaReferenciaEm = agora;
+    return;
+  }
+
+  unsigned long resposta = ultimaRespostaServidorEm;
+  unsigned long base = (resposta != 0 && (long)(resposta - vigiaReferenciaEm) > 0) ? resposta : vigiaReferenciaEm;
+  unsigned long semResposta = agora - base;
+  unsigned long limiteReinicio = vigiaReiniciosSeguidos >= VIGIA_REINICIOS_ANTES_DE_ESPACAR
+    ? VIGIA_REINICIAR_ESPACADO_MS : VIGIA_REINICIAR_MS;
+
+  if (semResposta >= limiteReinicio) {
+    reiniciarPeloVigia(1, semResposta / 1000);
+  } else if (semResposta >= VIGIA_RECONECTAR_WIFI_MS &&
+             (ultimaReconexaoForcadaEm == 0 || agora - ultimaReconexaoForcadaEm >= VIGIA_RECONECTAR_WIFI_MS)) {
+    ultimaReconexaoForcadaEm = agora;
+    Serial.printf("VIGIA: WiFi conectado mas sem resposta do servidor ha %lu s - reconectando o WiFi\n", semResposta / 1000);
+    enfileirarComandoHostinger("dispositivo", "conexao", "recuperacao:wifi:" + String(semResposta / 1000), "vigia");
+    WiFi.disconnect(); // atualizarConexaoWiFi() percebe e reconecta em seguida
+  }
 }
 
 // Aplica um comando da fila do dashboard (mesmo tipo/alvo/valor de enviar_comando.php).
@@ -2218,37 +2618,21 @@ void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const Strin
 // Polling da fila do dashboard. O servidor marca como entregue na mesma
 // resposta (pode perder um comando se a rede cair no meio).
 void atualizarComandosPendentesHostinger() {
-  if (!wifiConectado || WiFi.status() != WL_CONNECTED) return;
   if (millis() - ultimaConsultaComandosPendentesEm < INTERVALO_POLL_COMANDOS_HOSTINGER_MS) return;
   ultimaConsultaComandosPendentesEm = millis();
 
-  WiFiClientSecure client;
-  client.setInsecure(); // HTTPS sem fixar certificado
-  HTTPClient http;
-  String url = cfgUrl + "/comandos_pendentes.php";
-  if (!http.begin(client, url)) {
-    Serial.println("Hostinger: falha ao iniciar HTTP (comandos pendentes)");
-    return;
-  }
-
-  http.setTimeout(HOSTINGER_HTTP_TIMEOUT_MS);
-  http.addHeader("X-API-Key", chaveServidor());
-
-  int status = http.GET();
+  String resposta;
+  int status = requisicaoHttps("/comandos_pendentes.php", nullptr, true, &resposta);
   if (status != 200) {
     if (status > 0) {
       Serial.print("Hostinger: erro HTTP ");
       Serial.print(status);
       Serial.println(" em /comandos_pendentes.php");
     }
-    http.end();
     return;
   }
 
-  String resposta = http.getString();
-  http.end();
-
-  StaticJsonDocument<2048> doc;
+  JsonDocument doc;
   DeserializationError erroJson = deserializeJson(doc, resposta);
   if (erroJson) {
     Serial.print("Hostinger: JSON invalido em comandos pendentes: ");
@@ -2258,13 +2642,21 @@ void atualizarComandosPendentesHostinger() {
 
   if (!(doc["ok"] | false)) return;
 
+  // Entrega cada comando ao loop() (núcleo 1), que é quem mexe nos relés.
   JsonArray comandos = doc["comandos"].as<JsonArray>();
   for (JsonObject c : comandos) {
-    String tipo = c["tipo"] | "";
-    String alvo = c["alvo"] | "";
-    String valor = c["valor"] | "";
-    if (tipo == "" || alvo == "" || valor == "") continue;
-    aplicarComandoRemotoWeb(tipo, alvo, valor);
+    const char* tipo = c["tipo"] | "";
+    const char* alvo = c["alvo"] | "";
+    const char* valor = c["valor"] | "";
+    if (!*tipo || !*alvo || !*valor) continue;
+    ComandoRemoto cmd;
+    strlcpy(cmd.tipo, tipo, sizeof(cmd.tipo));
+    strlcpy(cmd.alvo, alvo, sizeof(cmd.alvo));
+    strlcpy(cmd.valor, valor, sizeof(cmd.valor));
+    // Espera até 1 s se a fila estiver cheia (o loop() esvazia a cada volta).
+    if (xQueueSend(filaComandosRemotos, &cmd, pdMS_TO_TICKS(1000)) != pdTRUE) {
+      Serial.println("Hostinger: fila de comandos remotos cheia, comando descartado");
+    }
   }
 }
 
@@ -2359,7 +2751,7 @@ void atualizarDHT() {
 }
 
 void atualizarPulsoSensor() {
-  if (pulsoSensorAtivo && millis() >= pulsoSensorAte) {
+  if (pulsoSensorAtivo && prazoVencido(pulsoSensorAte)) {
     pulsoSensorAtivo = false;
     if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
       atualizarOLED = true;
@@ -2400,7 +2792,7 @@ void atualizarDHTExterno() {
 }
 
 void atualizarPulsoSensorExterno() {
-  if (pulsoSensorExternoAtivo && millis() >= pulsoSensorExternoAte) {
+  if (pulsoSensorExternoAtivo && prazoVencido(pulsoSensorExternoAte)) {
     pulsoSensorExternoAtivo = false;
     if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
       atualizarOLED = true;
@@ -2532,7 +2924,7 @@ void atualizarNivelAgua() {
 }
 
 void atualizarPulsoSensorSolo() {
-  if (pulsoSensorSoloAtivo && millis() >= pulsoSensorSoloAte) {
+  if (pulsoSensorSoloAtivo && prazoVencido(pulsoSensorSoloAte)) {
     pulsoSensorSoloAtivo = false;
     if (telaSelecionada == TELA_PRINCIPAL && estadoOLED == OLED_EXIBINDO) {
       atualizarOLED = true;
@@ -2562,9 +2954,11 @@ bool luzDeveEstarLigada(const DateTime& now) {
   return minutosAgora >= inicio || minutosAgora < fim;
 }
 
+const unsigned long ESPERA_HORA_LUZ_MS = 10UL * 60UL * 1000UL;
+
 // Override manual sobrepõe o resultado, mas o timer continua sendo calculado.
 void controlarLuz(const DateTime& now) {
-  if (modoControleLuz != LUZ_AUTOMATICA && overrideLuzAte > 0 && millis() >= overrideLuzAte) {
+  if (modoControleLuz != LUZ_AUTOMATICA && overrideLuzAte != 0 && prazoVencido(overrideLuzAte)) {
     modoControleLuz = LUZ_AUTOMATICA;
     overrideLuzAte = 0;
     atualizarOLED = true;
@@ -2572,7 +2966,10 @@ void controlarLuz(const DateTime& now) {
 
   bool estadoAnterior = estadoReles[RELE_LUZ];
 
-  bool estadoAutomatico = luzDeveEstarLigada(now);
+  // RTC parou (sem bateria) e o NTP ainda não respondeu: a hora é a da compilação, não a real.
+  // Mantém a luz como estava antes de desligar por até 10 min, esperando a hora certa.
+  bool estadoAutomatico = (!horaConfiavel() && millis() < ESPERA_HORA_LUZ_MS)
+    ? estadoAnterior : luzDeveEstarLigada(now);
   bool novoEstado;
 
   switch (modoControleLuz) {
@@ -2589,6 +2986,7 @@ void controlarLuz(const DateTime& now) {
   }
 
   acionarRele(RELE_LUZ, novoEstado);
+  if (estadoAnterior != novoEstado) salvarLuz(novoEstado);
 
   // Na primeira passada depois de ligar, informa o estado da luz mesmo sem mudança.
   static bool luzInformadaAposBoot = false;
@@ -2646,8 +3044,7 @@ String tempoRestante(const DateTime& now) {
 
 // Tempo até o override manual expirar ("HHhMMm").
 String tempoRestanteOverrideLuz() {
-  unsigned long agora = millis();
-  unsigned long restanteMs = (overrideLuzAte > agora) ? (overrideLuzAte - agora) : 0;
+  unsigned long restanteMs = msAtePrazo(overrideLuzAte);
   unsigned long minutosRestantes = restanteMs / 60000UL;
 
   int horas = minutosRestantes / 60;
@@ -2692,126 +3089,6 @@ void atualizarBotaoAcesso() {
       mostrarMensagemTemporaria("Porta Liberada", 1500);
       registrarEventoAcesso("botao", "liberado");
   }
-}
-
-// ---------------- HISTÓRICO (LittleFS) ----------------
-// begin(true) formata na primeira vez.
-void iniciarHistorico() {
-  if (!LittleFS.begin(true)) {
-    Serial.println("Falha ao montar LittleFS - historico desativado");
-    historicoDisponivel = false;
-    return;
-  }
-
-  historicoDisponivel = true;
-
-  if (!LittleFS.exists(HISTORICO_ARQUIVO)) {
-    File arquivo = LittleFS.open(HISTORICO_ARQUIVO, "w");
-    if (arquivo) {
-      arquivo.println(HISTORICO_CABECALHO);
-      arquivo.close();
-    }
-    historicoTotalLinhas = 0;
-    Serial.println("Historico: arquivo novo criado");
-    return;
-  }
-
-  // Arquivo existente: conta as linhas de dados.
-  File arquivo = LittleFS.open(HISTORICO_ARQUIVO, "r");
-  int linhas = 0;
-  if (arquivo) {
-    while (arquivo.available()) {
-      if (arquivo.readStringUntil('\n').length() > 0) linhas++;
-    }
-    arquivo.close();
-  }
-  historicoTotalLinhas = (linhas > 0) ? linhas - 1 : 0; // -1 = desconta o cabeçalho
-  if (historicoTotalLinhas < 0) historicoTotalLinhas = 0;
-
-  Serial.print("Historico: ");
-  Serial.print(historicoTotalLinhas);
-  Serial.println(" linha(s) existente(s)");
-}
-
-// Mantém só as HISTORICO_MAX_LINHAS mais recentes, em streaming (pouca RAM).
-void rotacionarHistoricoSeNecessario() {
-  if (historicoTotalLinhas <= HISTORICO_MAX_LINHAS) return;
-
-  int totalASaltar = historicoTotalLinhas - HISTORICO_MAX_LINHAS; // quantas linhas antigas descartar
-
-  File leitura = LittleFS.open(HISTORICO_ARQUIVO, "r");
-  if (!leitura) return;
-
-  const char* ARQUIVO_TEMP = "/historico.tmp";
-  File escrita = LittleFS.open(ARQUIVO_TEMP, "w");
-  if (!escrita) {
-    leitura.close();
-    return;
-  }
-
-  escrita.println(HISTORICO_CABECALHO);
-  leitura.readStringUntil('\n'); // descarta o cabeçalho da leitura
-
-  int linhaAtual = 0;
-  int gravadas = 0;
-  while (leitura.available()) {
-    String linha = leitura.readStringUntil('\n');
-    if (linha.length() == 0) continue;
-    linhaAtual++;
-    if (linhaAtual <= totalASaltar) continue; // pula as mais antigas
-    escrita.println(linha);
-    gravadas++;
-  }
-
-  leitura.close();
-  escrita.close();
-
-  LittleFS.remove(HISTORICO_ARQUIVO);
-  LittleFS.rename(ARQUIVO_TEMP, HISTORICO_ARQUIVO);
-
-  historicoTotalLinhas = gravadas;
-  Serial.print("Historico rotacionado - mantidas ");
-  Serial.print(gravadas);
-  Serial.println(" linha(s)");
-}
-
-// Linha do CSV com o estado atual do sistema.
-void registrarHistorico() {
-  if (!historicoDisponivel) return;
-
-  File arquivo = LittleFS.open(HISTORICO_ARQUIVO, "a");
-  if (!arquivo) {
-    Serial.println("Historico: falha ao abrir arquivo para gravar");
-    return;
-  }
-
-  String linha = obterTimestampAtual() + ",";
-  linha += (isnan(tempAtual) ? "" : String(tempAtual, 1)) + ",";
-  linha += (isnan(umidAtual) ? "" : String(umidAtual, 0)) + ",";
-  linha += (isnan(tempExterna) ? "" : String(tempExterna, 1)) + ",";
-  linha += (isnan(umidExterna) ? "" : String(umidExterna, 0)) + ",";
-  linha += (soloValido ? String(soloPercentual) : String("")) + ",";
-  linha += String(estadoReles[RELE_LUZ] ? 1 : 0) + ",";
-  linha += String(modoAtual == VEGETACAO ? "vegetativo" : "floracao") + ",";
-  linha += String(estadoReles[RELE_VENTILADOR] ? 1 : 0) + ",";
-  linha += String(estadoReles[RELE_ENTRADA_AR] ? 1 : 0) + ",";
-  linha += String(estadoReles[RELE_AQUECEDOR] ? 1 : 0) + ",";
-  linha += String(estadoReles[RELE_SAIDA_AR] ? 1 : 0) + ",";
-  linha += String(acessoAtivo ? 1 : 0);
-
-  arquivo.println(linha);
-  arquivo.close();
-  historicoTotalLinhas++;
-
-  rotacionarHistoricoSeNecessario();
-}
-
-// Grava no histórico local a cada INTERVALO_HISTORICO_MS.
-void atualizarHistorico() {
-  if (millis() - ultimoRegistroHistoricoEm < INTERVALO_HISTORICO_MS) return;
-
-  ultimoRegistroHistoricoEm = millis();
-  registrarHistorico();
 }
 
 // Envia a leitura à Hostinger a cada INTERVALO_ENVIO_LEITURA_HOSTINGER_MS.
@@ -2867,14 +3144,21 @@ void mensagemInicializacao(const String& linha1, const String& linha2) {
 // NVRAM -> WiFi/NTP.
 void setup() {
   Serial.begin(115200);
+  mtxRede = xSemaphoreCreateMutex(); // antes de qualquer registrarEvento...()
 
   pinMode(BUZZER, OUTPUT);
   digitalWrite(BUZZER, LOW);
 
+  // Relés começam desligados, menos a luz, que começa como estava antes de desligar
+  // (a flash guarda isso). O nível é escrito antes do pinMode para não dar pulso no relé.
+  bool luzAntes = lerLuzSalva();
   for (int i = 0; i < TOTAL_RELES; i++) {
+    bool liga = (i == RELE_LUZ) && luzAntes;
+    int nivel = liga == RELE_ATIVO_EM_BAIXO ? LOW : HIGH;
+    digitalWrite(reles[i], nivel);
     pinMode(reles[i], OUTPUT);
-    digitalWrite(reles[i], RELE_ATIVO_EM_BAIXO ? HIGH : LOW); // garante que iniciam desligados
-    estadoReles[i] = false;
+    digitalWrite(reles[i], nivel);
+    estadoReles[i] = liga;
   }
 
   pinMode(SOIL_PIN, INPUT);
@@ -2921,16 +3205,26 @@ void setup() {
 
   if (rtcDisponivel && !rtc.isrunning()) {
     // Oscilador parado (sem bateria): parte da hora de compilação até o NTP.
-    Serial.println("RTC parado (sem bateria?). Ajustando para hora de compilacao...");
+    Serial.println("RTC parado (sem bateria?). Ajustando para hora de compilacao... "
+                   "Troque a bateria do modulo do relogio.");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    rtcPerdeuHora = true;
   }
 
   restaurarEstadoDaMemoria();
   restaurarFotoperiodoDaMemoria();
   restaurarDuracaoLuzDaMemoria();
+  // Garante a cópia na flash (no 1º boot depois de atualizar ela ainda não existe).
+  salvarEstadoNaMemoria();
+  salvarFotoperiodoNaMemoria();
+  salvarDuracaoLuzNaMemoria();
+  // Decide a luz já, sem esperar Wi-Fi e NTP (antes ela ficava apagada até ~25 s).
+  controlarLuz(obterAgora());
   restaurarClima();
-  iniciarHistorico();
-  // Informa ao dashboard os horários de luz em uso.
+  // Informa ao dashboard a fase e os horários de luz em uso. Se a memória do relógio tiver
+  // zerado (bateria do RTC fraca ou ausente), o servidor vê a diferença e reenvia o que
+  // está salvo no painel.
+  registrarEventoModo(modoAtual == FLORACAO ? "floracao" : "vegetativo", "boot");
   registrarEventoFotoperiodo(VEGETACAO, "boot");
   registrarEventoFotoperiodo(FLORACAO, "boot");
   registrarEventoDuracaoLuz("boot");
@@ -2975,11 +3269,20 @@ void setup() {
   estadoOLED = OLED_DESCANSO;
   atualizarOLED = true;
   renderizarOLED(obterAgora());
+
+  // A partir daqui toda a comunicação com o painel roda no núcleo 0.
+  iniciarVigiaRede();
+  iniciarTarefaRede();
+
+  // Watchdog do loop(): ligado só depois do setup (o portal de configuração pode demorar).
+  esp_task_wdt_init(WATCHDOG_LOOP_S, true); // reconfigura o watchdog que já existe
+  esp_task_wdt_add(NULL);                   // NULL = esta tarefa (a do setup/loop)
 }
 
 // ---------------- LOOP ----------------
 // Tudo não bloqueante; cada atualizarX() controla o próprio intervalo.
 void loop() {
+  esp_task_wdt_reset();         // "estou vivo" para o watchdog do loop
   atualizarLEDVPD();            // cor do NeoPixel reflete a zona do VPD atual
   atualizarBuzzer();           // desliga o beep quando o tempo expira
   atualizarAcesso();           // fecha a trava quando o tempo expira
@@ -2996,11 +3299,12 @@ void loop() {
   atualizarPulsoSensorSolo();  // apaga o indicador de "sensor vivo" (solo)
   atualizarSincronizacaoHora(); // tenta NTP periodicamente até sincronizar
   atualizarConexaoWiFi();      // reconecta WiFi com backoff se cair
-  atualizarHistorico();        // CSV local a cada 10 min
-  atualizarEnvioLeituraHostinger(); // envia a leitura atual pra Hostinger a cada 1 min
-  atualizarFilaComandosHostinger(); // envia eventos enfileirados
-  atualizarComandosPendentesHostinger(); // fila de comandos do dashboard (4s)
-  atualizarVinculoHostinger();   // troca o token de vinculação pelo definitivo
+  // A rede roda na tarefaRede (núcleo 0). Aqui só se entrega e recebe dados dela:
+  atualizarEnvioLeituraHostinger(); // monta a leitura de 1 em 1 min para o banco
+  atualizarEstadoHostinger();  // estado ao vivo para a Hostinger a cada 5 s
+  processarComandosRemotos();  // aplica os comandos do painel recebidos pela rede
+  mostrarMensagemDaRede();     // mensagens da rede no OLED (ex.: "Vinculado!")
+  atualizarVigiaRede();        // Wi-Fi conectado mas sem servidor: reconecta e, se preciso, reinicia
 
   // Mantém relógio/temporizadores visíveis atualizados mesmo sem mudança de sensor
   if (estadoOLED != OLED_DESCANSO && millis() - ultimoRefreshPeriodicoOLED >= INTERVALO_REFRESH_PERIODICO_MS) {

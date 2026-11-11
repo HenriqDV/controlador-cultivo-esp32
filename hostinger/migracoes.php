@@ -8,6 +8,11 @@ declare(strict_types=1);
 // VPD (kPa), mesma fórmula do firmware.
 const SQL_FORMULA_VPD = '(0.6108 * EXP((17.27 * temp_interna) / (temp_interna + 237.3)) * (1 - umid_interna / 100))';
 
+// Opções de "Atualização automática" do painel, em segundos. A atualização é leve
+// (ao_vivo.php), então 5 e 10 s não pesam no servidor. Padrão 5 s: o ESP32 manda o
+// estado atual a cada 5 s.
+const INTERVALOS_ATUALIZACAO = ['5', '10', '30', '60', '120', '300', '600'];
+
 // Padrões e whitelist das configurações.
 const CONFIG_PADRAO = [
     // Fotoperíodo: alterado só via fila de comandos.
@@ -16,7 +21,7 @@ const CONFIG_PADRAO = [
     // Preferências do painel.
     'nome_cultivo' => 'Smart Demetra',
     'pagina_inicial' => 'inicio',
-    'intervalo_atualizacao_seg' => '60',
+    'intervalo_atualizacao_seg' => '5',
     'periodo_padrao_historico' => '24h',
     'solo_ideal_min' => '50',
     'solo_ideal_max' => '60',
@@ -41,11 +46,29 @@ const CONFIG_PADRAO = [
     'luz_manual_min' => '30',
 ];
 
+// Marcador do banco já conferido: guarda a lista de migrações aplicadas (e o banco usado).
+// Enquanto não chegar migração nova, as requisições pulam a conferência do banco, que antes
+// rodava em toda chamada (o ESP32 faz cerca de uma por segundo). Para forçar a conferência,
+// apague o arquivo sql/.schema_ok.
+const ARQUIVO_SCHEMA_OK = __DIR__ . '/sql/.schema_ok';
+
+function assinatura_schema(): string
+{
+    $arquivos = array_map('basename', glob(__DIR__ . '/sql/migracoes/*.up.sql') ?: []);
+    sort($arquivos, SORT_STRING);
+    return hash('sha256', DB_HOST . '|' . DB_NAME . '|' . implode(',', $arquivos));
+}
+
 function garantir_schema_v2(): bool
 {
     static $ok = null;
     if ($ok !== null) {
         return $ok;
+    }
+
+    $assinatura = assinatura_schema();
+    if (@file_get_contents(ARQUIVO_SCHEMA_OK) === $assinatura) {
+        return $ok = true;
     }
 
     try {
@@ -68,6 +91,7 @@ function garantir_schema_v2(): bool
         }
         aplicar_migracoes_versionadas($pdo);
         $ok = true;
+        @file_put_contents(ARQUIVO_SCHEMA_OK, $assinatura, LOCK_EX); // sem permissão de escrita: só fica mais lento
     } catch (Throwable $e) {
         error_log('garantir_schema_v2: ' . $e->getMessage());
         $ok = false;
@@ -329,6 +353,23 @@ function aplicar_troca_fase(string $fase, string $usuario, string $como): void
     registrar_evento_painel('fase', $fase, $como, $usuario);
 }
 
+// Reenvia ao ESP32 um valor salvo no painel (fase ou horário de luz) que ele perdeu, sem
+// duplicar se um envio igual estiver pendente ou tiver sido entregue há menos de 2 min
+// (o ESP32 pode informar o valor antigo antes de aplicar o que acabou de receber).
+function enfileirar_sincronizacao(string $tipo, string $alvo, string $valor): void
+{
+    $stmt = db()->prepare(
+        "SELECT COUNT(*) FROM comandos_pendentes WHERE tipo = ? AND alvo = ? AND valor = ?
+         AND (status = 'pendente' OR entregue_em >= NOW() - INTERVAL 2 MINUTE)"
+    );
+    $stmt->execute([$tipo, $alvo, $valor]);
+    if ((int) $stmt->fetchColumn() > 0) {
+        return;
+    }
+    db()->prepare("INSERT INTO comandos_pendentes (tipo, alvo, valor, usuario) VALUES (?, ?, ?, 'sincronizacao')")
+        ->execute([$tipo, $alvo, $valor]);
+}
+
 // Chamado pelo cron.php: executa as trocas programadas cujo horário já chegou.
 function executar_trocas_programadas(): int
 {
@@ -515,6 +556,24 @@ function atividade_dispositivo(int $limite = 4): array
             $item['cor'] = $semLeitura ? 'atencao' : 'ok';
             $item['titulo'] = $semLeitura ? 'Sensor de solo sem leitura' : 'Sensor de solo voltou a ler';
             $item['detalhe'] = $semLeitura ? '0% em 3 leituras seguidas' : 'Leituras normais de novo';
+        } elseif ($valor === 'recuperacao') {
+            // Vigia do firmware 2.8.2: Wi-Fi conectado, mas sem resposta do servidor.
+            [$acao, $seg] = array_pad(explode(':', $extra, 2), 2, '0');
+            $tempo = texto_duracao((int) $seg);
+            $item['cor'] = 'atencao';
+            if ($acao === 'wifi') {
+                $item['titulo'] = 'Wi-Fi reconectado pelo ESP32';
+                $item['detalhe'] = 'Ficou ' . $tempo . ' sem resposta do servidor';
+            } elseif ($acao === 'travada') {
+                $item['titulo'] = 'ESP32 reiniciou sozinho';
+                $item['detalhe'] = 'A comunicação travou por ' . $tempo;
+            } elseif ($acao === 'loop') {
+                $item['titulo'] = 'ESP32 reiniciou sozinho';
+                $item['detalhe'] = 'O controle travou e o watchdog reiniciou';
+            } else {
+                $item['titulo'] = 'ESP32 reiniciou sozinho';
+                $item['detalhe'] = 'Ficou ' . $tempo . ' sem resposta do servidor';
+            }
         } else {
             $mapa = [
                 'offline' => ['falha', 'Sem dados', 'O ESP32 parou de enviar leituras'],
@@ -559,4 +618,47 @@ function registrar_offline_dispositivo(): void
     if ($ultimo !== 'offline') {
         registrar_evento_painel('dispositivo', 'conexao', 'offline', 'servidor');
     }
+}
+
+// Status do dispositivo (online/offline, última leitura e dados do ESP32).
+// Usado por ao_vivo.php. Os tempos são calculados no servidor.
+function dados_status(): array
+{
+    $config = ler_configuracoes();
+    $limiteMin = in_array($config['dispositivo_sem_dados_min'], ['2', '5', '10', '30'], true) ? (int) $config['dispositivo_sem_dados_min'] : 5;
+
+    $ultima = db()->query(
+        'SELECT criado_em, dispositivo_timestamp, TIMESTAMPDIFF(SECOND, criado_em, NOW()) AS segundos
+         FROM leituras_ambiente ORDER BY id DESC LIMIT 1'
+    )->fetch();
+    $leituras24h = (int) db()->query('SELECT COUNT(*) FROM leituras_ambiente WHERE criado_em >= NOW() - INTERVAL 24 HOUR')->fetchColumn();
+
+    $disp = null;
+    try {
+        $disp = db()->query(
+            'SELECT nome, modelo, mac, firmware_versao, wifi_rssi, uptime_seg, ultimo_contato,
+                    TIMESTAMPDIFF(SECOND, ultimo_contato, NOW()) AS segundos_desde_contato
+             FROM dispositivos WHERE id = 1'
+        )->fetch() ?: null;
+    } catch (Throwable $e) {
+        $disp = null; // migração 002 ainda não aplicada
+    }
+
+    $segundos = $ultima ? max(0, (int) $ultima['segundos']) : null;
+    $avisoOffline = null;
+    if ($ultima) {
+        $stmt = db()->prepare("SELECT dispositivo_timestamp FROM comandos_sistema WHERE tipo = 'notificacao' AND alvo = 'offline' AND valor = 'enviada' AND criado_em >= ? ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$ultima['criado_em']]);
+        $avisoOffline = $stmt->fetchColumn() ?: null;
+    }
+    return [
+        'ok' => true,
+        'limite_min' => $limiteMin,
+        'offline' => $segundos === null || $segundos > $limiteMin * 60,
+        'segundos_sem_dados' => $segundos,
+        'ultima_leitura' => $ultima ? ($ultima['dispositivo_timestamp'] ?: $ultima['criado_em']) : null,
+        'leituras_24h' => $leituras24h,
+        'aviso_offline_em' => $avisoOffline,
+        'dispositivo' => $disp,
+    ];
 }

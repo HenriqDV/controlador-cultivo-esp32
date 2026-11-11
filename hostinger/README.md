@@ -17,12 +17,13 @@ do projeto está no `README.md` da raiz.
 | `configuracoes.php` | Sessão | Preferências do painel e status do fotoperíodo confirmado pelo ESP32 |
 | `enviar_comando.php` | Sessão | Grava comandos do dashboard na fila `comandos_pendentes` |
 | `exportar_csv.php` | Sessão | Histórico em CSV (`?periodo=24h\|7d\|30d`; `;` e vírgula decimal) |
-| `dados.php` | Pública | Leituras para os gráficos (`?periodo=24h\|7d\|30d`) |
-| `comandos.php` | Pública | Eventos executados + modo de cultivo atual |
+| `dados.php` | Sessão | Leituras para os gráficos (`?periodo=24h\|7d\|30d`; no 24h, `&desde=<id>` devolve só as novas) |
+| `comandos.php` | Sessão | Eventos executados + modo de cultivo atual |
 | `comandos_pendentes.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 busca os comandos da fila |
 | `registrar_leitura.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 envia leituras (o VPD é calculado aqui) |
 | `registrar_comando.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 envia eventos executados |
-| `status.php` | Sessão | Online/offline e dados do ESP32 (firmware, sinal, tempo ligado) |
+| `ao_vivo.php` | Sessão | Atualização leve do painel: status, estado atual, última leitura e ids mais recentes de leituras e eventos |
+| `estado_atual.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 manda o estado atual a cada 5 s (guarda só o último, para o painel ao vivo) |
 | `dispositivo.php` | Sessão (alterações: admin) | Token do hardware, token de vinculação e atividade recente |
 | `vincular.php` | Pública (código de uso único) | ESP32 troca o token de vinculação pelo token definitivo |
 | `fotoperiodo.php` | Sessão | Troca de fase: ativar agora, programar para uma data, cancelar |

@@ -6,7 +6,7 @@ Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**,
 
 ![Painel do Smart Demetra no computador e no celular](docs/img/capa.png)
 
-> **Versão atual:** painel v2 · firmware **v2.7.3** · banco com migrações automáticas até a `008`.
+> **Versão atual:** painel v2 · firmware **v2.9.0** · banco com migrações automáticas até a `009`.
 
 ---
 
@@ -19,6 +19,7 @@ Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**,
 - 🔔 **Avisos no Telegram** — Leitura fora da faixa, caixa d'água baixa, dispositivo offline, timer não confirmado e resumo diário às 08:00.
 - 🌀 **8 relés** — Luz, irrigação (relé 1), ventilador, umidificador (relé 3), entrada de ar, aquecedor, saída de ar e trava da porta. O ESP32 informa o estado de todos ao ligar.
 - 💨 **Clima por VPD** — Você escolhe a fase (muda, vegetação ou floração), e o umidificador mantém o VPD sempre dentro da faixa: liga antes do máximo e desliga antes do mínimo, sem liga/desliga curto e com trava de umidade. Funciona sem internet ([detalhes](#clima-por-vpd)).
+- ⚡ **Painel ao vivo** — O ESP32 manda o estado atual (leituras e relés) a cada 5 s, e o painel mostra sem recarregar, só com a Hostinger ([detalhes](#painel-ao-vivo)).
 - 🔐 **Acesso seguro** — Várias contas com código de convite, limite de tentativas e token próprio para o ESP32.
 - 📶 **Configuração sem cabo** — Portal Wi-Fi **SmartDemetra-Setup** para escolher a rede e vincular o aparelho ao painel.
 - 🖥️ **Uso local** — Display OLED e botões no aparelho, que continuam funcionando sem internet.
@@ -30,12 +31,13 @@ Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**,
 
 ![Arquitetura: navegador, Hostinger e ESP32](docs/img/arquitetura.png)
 
-1. O **ESP32** lê os sensores e envia uma leitura por minuto para o servidor na **Hostinger**, identificado pelo seu **token do hardware**.
-2. No **painel**, cada ação grava um comando numa **fila** no banco de dados.
-3. O ESP32 consulta essa fila a cada **4 segundos**, aplica o comando e confirma de volta. O painel mostra se a confirmação chegou.
-4. Um **cron** roda no servidor a cada minuto. Ele faz as trocas de fase programadas e envia os avisos do Telegram.
+1. O **ESP32** lê os sensores e envia uma leitura por minuto para o servidor na **Hostinger**, identificado pelo seu **token do hardware**. Essa é a leitura que fica no histórico.
+2. A cada **5 segundos** o ESP32 também manda o **estado atual** (leituras, fase, luz e relés). O servidor guarda só o último, e o painel mostra ao vivo.
+3. No **painel**, cada ação grava um comando numa **fila** no banco de dados.
+4. O ESP32 consulta essa fila a cada **4 segundos**, aplica o comando e confirma de volta, e o painel mostra se a confirmação chegou.
+5. Um **cron** roda no servidor a cada minuto. Ele faz as trocas de fase programadas e envia os avisos do Telegram.
 
-O ESP32 só faz requisições de saída, então não é preciso abrir portas no roteador e o painel funciona de qualquer lugar.
+O ESP32 só faz conexões de saída, então não é preciso abrir portas no roteador e o painel funciona de qualquer lugar. Toda a rede roda numa tarefa própria no **núcleo 0** do ESP32-S3, com a conexão HTTPS reaproveitada entre as requisições. O `loop()` (sensores, relés, OLED, botões e clima por VPD) fica no núcleo 1 e nunca espera o servidor.
 
 ---
 
@@ -95,7 +97,7 @@ As faixas ideais de cada fase podem ser ajustadas em Configurações.
 ![Página Dispositivo](docs/img/painel-dispositivo.png)
 
 ### Configurações
-- **Painel:** nome do cultivo, página inicial, atualização automática (1, 2, 5 ou 10 min) e período padrão do histórico.
+- **Painel:** nome do cultivo, página inicial, atualização automática (5, 10 ou 30 s, ou 1, 2, 5 ou 10 min; padrão 5 s) e período padrão do histórico. Cada atualização é leve: o painel pergunta ao `ao_vivo.php` o que mudou e só busca leituras novas ou eventos quando há algo novo. A carga completa acontece ao abrir, depois de ações e a cada 5 min.
 - **Faixas de alerta:** solo, temperatura e umidade interna (mínimo e máximo), VPD ideal por fase (a mesma faixa usada pelo clima por VPD), alerta da caixa d'água (padrão 20%) e o tempo para considerar o dispositivo sem dados. O servidor valida tudo e aceita vírgula decimal.
 - **Notificações:** conexão com o Telegram, mensagem de teste e os quatro interruptores de aviso.
 - **Luz:** duração do modo manual (15, 30, 60 ou 120 min). O valor é enviado ao ESP32, e o painel mostra quando ele aplicou.
@@ -181,6 +183,30 @@ Roda no próprio ESP32, então continua funcionando sem internet. Você escolhe 
 
 ---
 
+## Painel ao vivo
+
+Funciona só com a Hostinger, sem nenhuma configuração extra:
+
+- **Estado a cada 5 s:** o ESP32 manda as leituras, a fase, o modo da luz e os relés para o `estado_atual.php`. O servidor guarda **só o último** (tabela `estado_atual`, uma linha), então o banco não cresce. O histórico continua com uma leitura por minuto.
+- **Painel a cada 5 s:** a atualização automática chama o `ao_vivo.php`, que devolve o status, o estado atual e os ids do que mudou. O painel só busca leituras novas ou eventos quando há algo novo. Uma mudança no ESP32 aparece no painel em até ~10 s (5 s em média), e o selo do Início mostra **Online · ao vivo**.
+- **Offline rápido:** se o ESP32 parar de mandar o estado e o banco ficar 90 s sem leitura, o painel mostra **Offline** sem esperar o tempo de "Dispositivo sem dados".
+- **Leve para o ESP32:** o envio usa a mesma conexão HTTPS, que fica aberta, numa tarefa no núcleo 0. Sensores, relés, OLED e clima por VPD não esperam a rede.
+
+**Recuperação automática da conexão:** o Wi-Fi pode continuar conectado sem os dados chegarem ao servidor (roteador sem internet, DNS, comunicação travada). Por isso, o ESP32 vigia a última resposta do servidor:
+- **3 min** sem resposta: derruba e reconecta o Wi-Fi (repete a cada 3 min);
+- **10 min** sem resposta: reinicia o ESP32 (fase, luz e relés manuais voltam da memória);
+- comunicação **travada por 2 min**: reinicia o ESP32.
+
+Depois de 3 reinícios seguidos sem resposta (servidor fora do ar), ele só reinicia a cada 1 h. Com o Wi-Fi realmente fora do ar, ele só tenta reconectar, sem reiniciar. Cada recuperação aparece em **Dispositivo → Atividade recente**. A cada minuto, o monitor serial mostra uma linha "Rede:" com a última resposta do servidor e a memória livre, para diagnóstico.
+
+**Depois de uma falta de energia:** o ESP32 guarda relés manuais, fase, horários de luz e o último estado da luz na **flash** (não depende de bateria), além da memória do relógio (RTC). Ao ligar, a luz começa como estava e é decidida pelo horário logo no início, sem esperar o Wi-Fi. Se o relógio parou por falta de bateria, a luz fica como estava até o NTP trazer a hora certa (no máximo 10 min). Mesmo assim, troque a bateria do módulo do relógio se o monitor serial mostrar "RTC parado (sem bateria?)": sem ela, ele perde a hora a cada queda de energia.
+
+**Fase e horários de luz no painel depois de um reinício:** ao ligar, ele informa ao painel a fase e os horários que recuperou. Se forem diferentes do que está salvo no painel (memória zerada), o servidor reenvia os do painel em segundos, sem reiniciar a contagem de dias da fase.
+
+Na atualização da versão anterior, a migração `009` cria a tabela e passa a "Atualização automática" de 1 min ou mais para 5 s. Dá para mudar em **Configurações**.
+
+---
+
 ## Instalação
 
 ### 1. Servidor (Hostinger)
@@ -222,7 +248,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 
 ```
 ├── src/
-│   ├── main.cpp                 # firmware (v2.7.3)
+│   ├── main.cpp                 # firmware (v2.9.0)
 │   └── secrets.example.h        # modelo de credenciais (copie para secrets.h)
 ├── hostinger/                   # painel + API (vai para o public_html)
 │   ├── index.php                # painel (todas as páginas)
@@ -233,7 +259,8 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 │   ├── auth.php                 # contas, "lembrar de mim", convite, CSRF, limite de tentativas
 │   ├── usuarios.php             # senha e gestão de contas
 │   ├── configuracoes.php        # preferências, faixas e status do timer
-│   ├── status.php               # online/offline e dados do ESP32
+│   ├── ao_vivo.php              # atualização leve do painel (status, estado atual e ids do que mudou)
+│   ├── estado_atual.php         # ESP32 manda o estado atual a cada 5 s (guarda só o último)
 │   ├── fotoperiodo.php          # troca de fase (agora ou programada)
 │   ├── dispositivo.php          # token do hardware, vinculação e atividade
 │   ├── vincular.php             # ESP32 troca o código de vinculação pelo token
@@ -242,13 +269,14 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 │   ├── exportar_csv.php         # histórico em CSV
 │   ├── cron.php                 # tarefas a cada minuto (linha de comando)
 │   ├── migracoes.php            # funções comuns e atualização do banco
+│   ├── api_comum.php            # início comum dos endpoints JSON (erros em JSON, config, login)
 │   ├── dados.php / comandos.php
 │   ├── enviar_comando.php / comandos_pendentes.php
 │   ├── registrar_leitura.php / registrar_comando.php
 │   ├── config.example.php       # modelo de configuração (copie para config.php)
 │   └── sql/
 │       ├── schema.sql           # instalação nova
-│       └── migracoes/           # 002 a 008 (.up.sql automático, .down.sql manual)
+│       └── migracoes/           # 002 a 009 (.up.sql automático, .down.sql manual)
 ├── docs/
 │   ├── img/                     # imagens deste README e ícone
 │   └── verificacao-manual.md    # roteiro de testes por página
@@ -263,10 +291,11 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 | Arquivo | Acesso | Função |
 |---|---|---|
 | `index.php`, `configuracoes.php`, `usuarios.php`, `enviar_comando.php` | Sessão (login) | Painel, preferências, contas e envio de comandos |
-| `status.php`, `fotoperiodo.php`, `notificacoes.php`, `exportar_csv.php` | Sessão | Status, troca de fase, Telegram e CSV |
+| `fotoperiodo.php`, `notificacoes.php`, `exportar_csv.php` | Sessão | Troca de fase, Telegram e CSV |
+| `ao_vivo.php` | Sessão | Atualização leve: status, estado atual, última leitura e os ids mais recentes de leituras e eventos |
 | `dispositivo.php` | Sessão (alterações só para admin) | Token do hardware, vinculação e atividade recente |
-| `dados.php`, `comandos.php` | Público (leitura) | Leituras para os gráficos e eventos |
-| `registrar_leitura.php`, `registrar_comando.php`, `comandos_pendentes.php` | `X-API-Key` (token `sd_hw_` ou `API_KEY`) | Leituras, eventos e fila do ESP32 |
+| `dados.php`, `comandos.php` | Sessão | Leituras para os gráficos e eventos (`dados.php?periodo=24h&desde=<id>` devolve só as leituras novas) |
+| `registrar_leitura.php`, `registrar_comando.php`, `comandos_pendentes.php`, `estado_atual.php` | `X-API-Key` (token `sd_hw_` ou `API_KEY`) | Leituras, eventos, fila e estado atual do ESP32 |
 | `vincular.php` | Código de vinculação (uso único) | Entrega o token definitivo ao ESP32 |
 | `cron.php` | Só linha de comando | Trocas programadas, offline, timer e resumo diário |
 
@@ -293,6 +322,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 | `leituras_ambiente` | Leituras dos sensores + VPD e nível da caixa d'água (distância, litros e percentual) |
 | `comandos_sistema` | Eventos do ESP32 e do painel (relés, timers, fases, alertas, avisos) |
 | `comandos_pendentes` | Fila painel → ESP32 |
+| `estado_atual` | Último estado enviado pelo ESP32 (a cada 5 s, uma linha só) |
 | `configuracoes` | Horários de luz, fase e início do ciclo, faixas, Telegram e preferências |
 | `trocas_fase` | Trocas de fase programadas |
 | `dispositivos` | Firmware, sinal, último contato e hash do token do ESP32 |
@@ -307,7 +337,8 @@ Bancos de versões anteriores são atualizados sozinhos no primeiro acesso ao pa
 <details>
 <summary><b>Memória do ESP32, hora e histórico local</b></summary>
 
-- **Memória do RTC DS1307:**
+- **Flash (NVS "estado"):** cópia de tudo o que vai para a memória do RTC (relés, modo, override, horários e duração da luz) e o último estado da luz. É de onde o ESP32 restaura ao ligar; a flash só é gravada quando o valor muda.
+- **Memória do RTC DS1307** (reserva; só se mantém com a bateria do módulo):
   - bytes 0–7: relés, modo e override da luz (marcador `0xA6`; a memória gravada por firmware anterior à 2.6.3 é convertida sozinha para a nova posição do umidificador e da irrigação);
   - bytes 8–12: horários de início da luz;
   - bytes 13–14: duração do modo manual.
@@ -315,13 +346,14 @@ Bancos de versões anteriores são atualizados sozinhos no primeiro acesso ao pa
   A trava nunca volta ligada depois de um reinício.
 - **Memória NVS:** rede Wi-Fi, endereço do painel e token `sd_hw_` salvos pelo portal. Esses valores têm prioridade sobre o `secrets.h`. A configuração do clima por VPD (fase, faixa, trava e tempos mínimos) também fica salva e volta ao ligar.
 - **Hora:** NTP (`pool.ntp.org`, `time.google.com`, `a.st1.ntp.br`, `time.windows.com`), com o RTC como reserva. Fuso UTC−3.
-- **Histórico local:** CSV na memória interna (LittleFS) a cada 10 min, com os últimos 7 dias. O histórico completo fica no banco.
+- **Watchdog:** se o `loop()` parar por mais de 15 s (ex.: barramento I2C travado), o ESP32 reinicia e avisa em Dispositivo → Atividade recente.
+- **Prazos:** todos os tempos com `millis()` usam a diferença com sinal, que continua certa quando o contador volta a zero (a cada 49,7 dias).
 </details>
 
 <details>
 <summary><b>Dependências</b></summary>
 
-- **Firmware** (instaladas pelo PlatformIO): Adafruit GFX, Adafruit SSD1306, RTClib, DHT sensor library, Adafruit NeoPixel, Adafruit SHT4x, ArduinoJson e WiFiManager.
+- **Firmware** (instaladas pelo PlatformIO): Adafruit GFX, Adafruit SSD1306, RTClib, DHT sensor library, Adafruit NeoPixel, Adafruit SHT4x, ArduinoJson 7 e WiFiManager.
 - **Painel:** Chart.js e Lucide (ícones), carregados via CDN.
 - **Servidor:** PHP 8 com PDO MySQL e cURL (para o Telegram).
 </details>
