@@ -370,6 +370,54 @@ function enfileirar_sincronizacao(string $tipo, string $alvo, string $valor): vo
         ->execute([$tipo, $alvo, $valor]);
 }
 
+// Mantém a faixa de VPD do ESP32 igual à da fase em uso, sem ninguém precisar mexer em Comandos.
+// O ESP32 guarda uma faixa só (a do comando "clima_vpd"), usada pelo clima do umidificador e pelo
+// aquecedor noturno. Esta função reenvia esse comando quando:
+//   - a fase do cultivo muda ($modo = 'vegetativo' ou 'floracao'): passa para a faixa da nova fase;
+//   - as faixas ou travas são alteradas em Configurações ($modo = null): mesma fase, valores novos.
+// Ligado/desligado do clima não muda. Sem registro do ESP32 (firmware antigo), não faz nada.
+// Devolve true se enfileirou um comando.
+function sincronizar_faixa_vpd(?string $modo = null, string $usuario = 'sincronizacao'): bool
+{
+    // Ponto de partida: o último pedido ainda não entregue; se não houver, o que o ESP32 confirmou.
+    $atual = db()->query("SELECT valor FROM comandos_pendentes WHERE tipo = 'clima_vpd' AND status = 'pendente' ORDER BY id DESC LIMIT 1")->fetchColumn();
+    if ($atual === false) {
+        $atual = db()->query("SELECT valor FROM comandos_sistema WHERE tipo = 'clima_vpd' ORDER BY id DESC LIMIT 1")->fetchColumn();
+    }
+    $p = $atual === false ? [] : explode(';', (string) $atual);
+    if (count($p) !== 8) {
+        return false;
+    }
+    $chaves = [0 => 'muda', 1 => 'vegetativo', 2 => 'floracao'];
+    $fase = $modo === null ? (int) $p[1] : ($modo === 'floracao' ? 2 : 1);
+    if (!isset($chaves[$fase])) {
+        return false;
+    }
+    $cfg = ler_configuracoes();
+    $min = (float) ($cfg['vpd_' . $chaves[$fase] . '_min'] ?? 0);
+    $max = (float) ($cfg['vpd_' . $chaves[$fase] . '_max'] ?? 0);
+    $travaTemp = (float) ($cfg['clima_trava_temp'] ?? $p[4]);
+    $travaUmid = (int) round((float) ($cfg['clima_trava_umid'] ?? $p[5]));
+    $minLigado = (int) ($cfg['clima_min_ligado'] ?? $p[6]);
+    $minDesligado = (int) ($cfg['clima_min_desligado'] ?? $p[7]);
+    // Mesmos limites que o enviar_comando.php aceita do painel.
+    if ($min < 0.2 || $max > 2.5 || ($max - $min) < 0.1 || $travaTemp < 15 || $travaTemp > 40 || $travaUmid < 30 || $travaUmid > 95
+        || $minLigado < 1 || $minLigado > 15 || $minDesligado < 1 || $minDesligado > 15) {
+        return false;
+    }
+    $igual = (int) $p[1] === $fase && abs((float) $p[2] - $min) < 0.005 && abs((float) $p[3] - $max) < 0.005
+        && abs((float) $p[4] - $travaTemp) < 0.05 && (int) $p[5] === $travaUmid && (int) $p[6] === $minLigado && (int) $p[7] === $minDesligado;
+    if ($igual) {
+        return false;
+    }
+    $valor = ($p[0] === '1' ? '1' : '0') . ';' . $fase . ';' . number_format($min, 2, '.', '') . ';' . number_format($max, 2, '.', '') . ';'
+        . number_format($travaTemp, 1, '.', '') . ';' . $travaUmid . ';' . $minLigado . ';' . $minDesligado;
+    db()->prepare("DELETE FROM comandos_pendentes WHERE tipo = 'clima_vpd' AND status = 'pendente'")->execute();
+    db()->prepare("INSERT INTO comandos_pendentes (tipo, alvo, valor, usuario) VALUES ('clima_vpd', 'clima', ?, ?)")
+        ->execute([$valor, substr($usuario, 0, 40)]);
+    return true;
+}
+
 // Chamado pelo cron.php: executa as trocas programadas cujo horário já chegou.
 function executar_trocas_programadas(): int
 {
