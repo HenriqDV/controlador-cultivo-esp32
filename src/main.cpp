@@ -38,7 +38,7 @@
 #define WOKWI_SIMULATION 0
 
 // Versão enviada ao painel (tela Dispositivo). Atualize a cada nova gravação.
-#define FIRMWARE_VERSAO "2.12.2"
+#define FIRMWARE_VERSAO "2.12.3"
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
 #endif
@@ -76,7 +76,9 @@ unsigned long ultimoEnvioLeituraHostingerEm = 0;
 const long GMT_OFFSET_SEC = -3 * 3600;
 const int DAYLIGHT_OFFSET_SEC = 0;
 const unsigned long WIFI_TIMEOUT_MS = 15000;
-const unsigned long RETENTATIVA_WIFI_INICIAL_MS = 5000;
+// 15 s: uma conexão com sinal fraco leva mais que os 5 s de antes e era abortada pela tentativa seguinte.
+const unsigned long RETENTATIVA_WIFI_INICIAL_MS = 15000;
+const int TENTATIVAS_WIFI_ANTES_DE_REINICIAR_RADIO = 3;  // só então desliga e religa o rádio
 const unsigned long RETENTATIVA_WIFI_POSTERIOR_MS = 30000;
 const unsigned long JANELA_WIFI_INICIAL_MS = 60000;
 const unsigned long NTP_TIMEOUT_MS = 10000;
@@ -97,6 +99,10 @@ inline unsigned long msAtePrazo(unsigned long prazo) {
 // As duas partes conversam só pelo que está protegido por mtxRede e pela fila de comandos.
 const unsigned long HOSTINGER_HTTP_TIMEOUT_MS = 7000;
 const unsigned long INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS = 250; // eventos saem quase na hora
+// Depois de uma falha (rede, erro 500, token recusado) espera antes de tentar o mesmo evento de novo.
+// Antes repetia a cada 250 ms sem parar.
+const unsigned long ESPERA_APOS_FALHA_COMANDO_MS = 5000;
+unsigned long esperaEnvioComandoMs = INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS;  // só na tarefa de rede
 const int HOSTINGER_FILA_COMANDOS_MAX = 30;
 String filaComandosHostinger[HOSTINGER_FILA_COMANDOS_MAX];   // protegida por mtxRede
 int filaComandosInicio = 0;
@@ -105,7 +111,7 @@ int filaComandosTotal = 0;
 unsigned long ultimoEnvioComandoHostingerEm = 0;              // só na tarefa de rede
 
 // Estado ao vivo pela própria Hostinger: leituras e relés a cada 5 s em estado_atual.php.
-// O servidor guarda só o último (não cresce o banco); o histórico continua com 1 leitura por minuto.
+// O servidor guarda só o último (não cresce o banco); o histórico continua com 1 leitura a cada 20 s.
 const unsigned long INTERVALO_ESTADO_HOSTINGER_MS = 5000;
 unsigned long ultimoEstadoHostingerEm = 0;                    // loop()
 
@@ -355,6 +361,12 @@ float tempAtual = NAN;
 float umidAtual = NAN;
 unsigned long ultimoDHT = 0;
 const unsigned long INTERVALO_DHT_MS = 2000; // intervalo mínimo recomendado p/ DHT22; SHT40 aceita mais rápido
+// Leituras seguidas com falha até marcar "sem leitura" (5 x 2 s = 10 s). Antes o último valor ficava
+// valendo para sempre: com o sensor parado, o clima e o aquecedor noturno seguiam um VPD congelado
+// e as travas de segurança (temperatura, umidade, "sem sensor") nunca disparavam.
+const int AR_FALHAS_PARA_INVALIDAR = 5;
+const int AR_FALHAS_PARA_REINICIAR_SENSOR = 15;  // a cada 30 s sem leitura tenta iniciar o SHT40 de novo
+int arFalhas = 0;
 bool pulsoSensorAtivo = false;      // indicador visual de "sensor vivo" (bolinha ao lado de "Interna", na TELA_PRINCIPAL)
 unsigned long pulsoSensorAte = 0;
 const unsigned long DURACAO_PULSO_SENSOR_MS = 300; // por quanto tempo o pulso fica visível a cada leitura
@@ -1907,7 +1919,15 @@ void definirAquecedorNoturnoRemoto(const String& valor) {
     salvarAquecedorNoturno();
   }
   registrarEventoAquecedorNoturno("web");
-  // Ao desativar, o relé fica como está; o usuário decide pelo interruptor.
+  // Ao desativar pelo painel, o aquecedor desliga: sem a automação não há mais trava de temperatura
+  // cuidando dele. (Antes ficava como estava, podendo seguir ligado sem nenhuma proteção.)
+  // Para usar o aquecedor no manual, ligue pelo interruptor depois de desativar.
+  if (mudou && !novo && estadoReles[RELE_AQUECEDOR]) {
+    acionarRele(RELE_AQUECEDOR, false);
+    registrarEventoRele(RELE_AQUECEDOR, false, "web");
+    salvarEstadoNaMemoria();
+    Serial.println("Aquecedor noturno desativado: aquecedor desligado");
+  }
   atualizarOLED = true;
 }
 
@@ -1936,13 +1956,30 @@ void acaoAquecedorNoturno(bool ligar, const char* motivo, float vpd, float temp,
 // Chamado a cada 5 s por atualizarClima(), com a média de 60 s já calculada.
 void atualizarAquecedorNoturno(float temp, float umid, int validas) {
   if (!aqNoturnoAtivo) return;
+  bool ligado = estadoReles[RELE_AQUECEDOR];
+
+  // SEGURANÇA PRIMEIRO, antes de qualquer outra condição (inclusive a da hora): o aquecedor pode ter
+  // voltado ligado da memória depois de um reinício, e sem a hora certa as travas abaixo não rodavam.
+  // 1) Sem leitura do sensor: desliga na hora e não liga.
+  if (isnan(tempAtual) || isnan(umidAtual) || validas == 0) {
+    aqAbaixoDesde = 0;
+    if (ligado) acaoAquecedorNoturno(false, "sem_sensor", NAN, NAN, NAN);
+    return;
+  }
+  // 2) Trava de temperatura (média ou leitura instantânea): desliga na hora.
+  if (temp >= clima.travaTemp || tempAtual >= clima.travaTemp) {
+    aqLigarAoAnoitecer = false;
+    aqAbaixoDesde = 0;
+    if (ligado) acaoAquecedorNoturno(false, "trava_temp", calcularVPD(temp, umid), temp, umid);
+    return;
+  }
+
   if (!horaConfiavel()) return;  // sem a hora certa não dá para saber se é noite
 
   bool noite = !luzDeveEstarLigada(obterAgora());
   if (aqNoiteConhecida && noite && !aqNoiteAnterior) aqLigarAoAnoitecer = true;  // a luz acabou de apagar
   aqNoiteAnterior = noite;
   aqNoiteConhecida = true;
-  bool ligado = estadoReles[RELE_AQUECEDOR];
 
   // Dia: o aquecedor noturno não age; se ficou ligado, desliga.
   if (!noite) {
@@ -1952,12 +1989,7 @@ void atualizarAquecedorNoturno(float temp, float umid, int validas) {
     return;
   }
 
-  // Sem leitura do sensor: por segurança desliga na hora e não liga.
-  if (isnan(tempAtual) || isnan(umidAtual) || validas == 0) {
-    aqAbaixoDesde = 0;
-    if (ligado) acaoAquecedorNoturno(false, "sem_sensor", NAN, NAN, NAN);
-    return;
-  }
+  // (Falta de sensor e trava de temperatura já foram tratadas no início da função.)
   if (validas < AMOSTRAS_MINIMAS_CLIMA) return;  // média ainda se formando (primeiros 30 s)
 
   float vpd = calcularVPD(temp, umid);
@@ -1965,14 +1997,6 @@ void atualizarAquecedorNoturno(float temp, float umid, int validas) {
   float pontoLigar = clima.min;
   float alvo = clima.max - AQ_NOTURNO_MARGEM_KPA;
   if (alvo <= pontoLigar) alvo = (clima.min + clima.max) / 2.0f;  // faixa estreita demais para a margem
-
-  // Trava de temperatura (média ou leitura instantânea): desliga na hora.
-  if (temp >= clima.travaTemp || tempAtual >= clima.travaTemp) {
-    aqLigarAoAnoitecer = false;
-    aqAbaixoDesde = 0;
-    if (ligado) acaoAquecedorNoturno(false, "trava_temp", vpd, temp, umid);
-    return;
-  }
 
   if (ligado) {
     aqLigarAoAnoitecer = false;
@@ -2218,10 +2242,20 @@ void atualizarConexaoWiFi() {
   }
 
   ultimaTentativaWiFi = millis();
-  Serial.println("Tentando reconectar WiFi...");
+  // Uma tentativa em andamento não é interrompida pela seguinte: as primeiras só pedem a conexão de
+  // novo. Só depois de TENTATIVAS_WIFI_ANTES_DE_REINICIAR_RADIO seguidas sem sucesso o rádio é
+  // desligado e religado (antes isso acontecia a cada 5 s, abortando conexões lentas).
+  static int tentativasWiFiSeguidas = 0;
+  tentativasWiFiSeguidas++;
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true, true);
-  delay(100);
+  if (tentativasWiFiSeguidas % TENTATIVAS_WIFI_ANTES_DE_REINICIAR_RADIO == 0) {
+    Serial.println("Tentando reconectar WiFi (reiniciando o radio)...");
+    WiFi.disconnect(true, true);
+    delay(100);
+  } else {
+    Serial.println("Tentando reconectar WiFi...");
+    WiFi.disconnect(false, false);
+  }
   WiFi.begin(cfgSsid.c_str(), cfgSenha.c_str());
 }
 
@@ -2575,7 +2609,7 @@ void mostrarMensagemDaRede() {
 
 // ===================== tarefa de rede (núcleo 0) =====================
 void atualizarFilaComandosHostinger() {
-  if (millis() - ultimoEnvioComandoHostingerEm < INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS) return;
+  if (millis() - ultimoEnvioComandoHostingerEm < esperaEnvioComandoMs) return;
 
   String payload;
   {
@@ -2584,12 +2618,23 @@ void atualizarFilaComandosHostinger() {
     payload = filaComandosHostinger[filaComandosInicio];
   }
 
+  int status = requisicaoHttps("/registrar_comando.php", &payload, true, nullptr);
   ultimoEnvioComandoHostingerEm = millis();
-  if (!enviarJsonHostinger("/registrar_comando.php", payload)) {
+  bool enviado = status >= 200 && status < 300;
+  // 400/422: o servidor recusou ESTE evento (JSON ou campos inválidos) e vai recusar sempre.
+  // Descarta para não travar a fila: antes o primeiro evento recusado bloqueava todos os seguintes.
+  bool recusado = status == 400 || status == 422;
+  if (!enviado && !recusado) {
+    // Rede fora, erro 500 ou token recusado (401): o evento fica na fila e a próxima tentativa espera.
+    esperaEnvioComandoMs = ESPERA_APOS_FALHA_COMANDO_MS;
+    Serial.printf("Hostinger: erro HTTP %d em /registrar_comando.php (nova tentativa em %lu s)\n",
+                  status, ESPERA_APOS_FALHA_COMANDO_MS / 1000UL);
     return;
   }
+  esperaEnvioComandoMs = INTERVALO_ENVIO_COMANDOS_HOSTINGER_MS;
+  if (recusado) Serial.printf("Hostinger: evento recusado pelo servidor (HTTP %d), descartado\n", status);
 
-  // Tira da fila só depois de enviado. Se a fila transbordou enquanto enviava,
+  // Tira da fila só depois de enviado (ou recusado). Se a fila transbordou enquanto enviava,
   // o item já foi descartado pelo enfileirar e não há o que tirar.
   TravaRede trava;
   if (filaComandosTotal > 0 && filaComandosHostinger[filaComandosInicio] == payload) {
@@ -2896,6 +2941,29 @@ void atualizarDHT() {
     }
   }
 #endif
+
+  // Sem leitura válida (falha de CRC/timeout, sensor desconectado ou não detectado ao ligar).
+  if (isnan(novaTemp) || isnan(novaUmid)) {
+    arFalhas++;
+    if (arFalhas >= AR_FALHAS_PARA_INVALIDAR && (!isnan(tempAtual) || !isnan(umidAtual))) {
+      tempAtual = NAN;
+      umidAtual = NAN;
+      atualizarOLED = true;
+      Serial.println("Sensor de ar sem leitura - temperatura/umidade invalidadas (clima e aquecedor noturno desligam por seguranca)");
+    }
+#if !WOKWI_SIMULATION
+    if (arFalhas % AR_FALHAS_PARA_REINICIAR_SENSOR == 0) {
+      sht40Disponivel = sht4.begin();
+      if (sht40Disponivel) {
+        sht4.setPrecision(SHT4X_HIGH_PRECISION);
+        sht4.setHeater(SHT4X_NO_HEATER);
+      }
+      Serial.println(sht40Disponivel ? "SHT40 reiniciado" : "SHT40 nao responde (verifique a fiacao I2C)");
+    }
+#endif
+    return;
+  }
+  arFalhas = 0;
 
   if (!isnan(novaTemp) && (isnan(tempAtual) || fabs(tempAtual - novaTemp) >= 0.1f)) {
     tempAtual = novaTemp;
@@ -3469,7 +3537,7 @@ void loop() {
   atualizarSincronizacaoHora(); // tenta NTP periodicamente até sincronizar
   atualizarConexaoWiFi();      // reconecta WiFi com backoff se cair
   // A rede roda na tarefaRede (núcleo 0). Aqui só se entrega e recebe dados dela:
-  atualizarEnvioLeituraHostinger(); // monta a leitura de 1 em 1 min para o banco
+  atualizarEnvioLeituraHostinger(); // monta a leitura a cada 20 s para o banco
   atualizarEstadoHostinger();  // estado ao vivo para a Hostinger a cada 5 s
   processarComandosRemotos();  // aplica os comandos do painel recebidos pela rede
   mostrarMensagemDaRede();     // mensagens da rede no OLED (ex.: "Vinculado!")

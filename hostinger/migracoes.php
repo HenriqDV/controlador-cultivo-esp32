@@ -145,7 +145,8 @@ function horario_fotoperiodo_valido(string $v): bool
 // Registra em comandos_sistema (tipo 'alerta', alvo 'Solo') só na mudança de estado: 'sem_leitura' ou 'normalizado'.
 function verificar_sensor_solo(?string $timestamp): void
 {
-    $ultimas = db()->query('SELECT solo_percentual FROM leituras_ambiente ORDER BY id DESC LIMIT 3')->fetchAll(PDO::FETCH_COLUMN);
+    // Janela de 4 min (antes: 3 últimas leituras, que com leituras a cada 20 s viraram só 1 min).
+    $ultimas = db()->query('SELECT solo_percentual FROM leituras_ambiente WHERE criado_em >= NOW() - INTERVAL 4 MINUTE ORDER BY id DESC LIMIT 30')->fetchAll(PDO::FETCH_COLUMN);
     if (count($ultimas) < 3) {
         return;
     }
@@ -370,15 +371,82 @@ function enfileirar_sincronizacao(string $tipo, string $alvo, string $valor): vo
         ->execute([$tipo, $alvo, $valor]);
 }
 
+// ---------------- Clima por VPD: limites e formato (iguais aos do firmware) ----------------
+// O firmware (interpretarValorClima()) recusa em silêncio o que estiver fora destes limites,
+// então o painel e o servidor conferem antes de salvar ou enviar.
+const VPD_FAIXA_MIN = 0.2;       // kPa: menor mínimo aceito
+const VPD_FAIXA_MAX = 2.5;       // kPa: maior máximo aceito
+const VPD_FAIXA_LARGURA = 0.1;   // kPa: diferença mínima entre máximo e mínimo
+// Clima com que o ESP32 sai de fábrica (ou volta, se perder a memória): ver "ClimaVpd clima" no firmware.
+const CLIMA_PADRAO_FIRMWARE = '0;2;1.20;1.60;28.0;60;3;3';
+
+// null se a faixa serve para o ESP32; senão, o motivo (texto para o usuário).
+function erro_faixa_vpd(float $min, float $max): ?string
+{
+    $br = static fn (float $n): string => str_replace('.', ',', (string) $n);
+    if ($min < VPD_FAIXA_MIN - 1e-9) {
+        return 'o mínimo não pode ser menor que ' . $br(VPD_FAIXA_MIN) . ' kPa';
+    }
+    if ($max > VPD_FAIXA_MAX + 1e-9) {
+        return 'o máximo não pode passar de ' . $br(VPD_FAIXA_MAX) . ' kPa';
+    }
+    if ($max - $min < VPD_FAIXA_LARGURA - 1e-9) {
+        return 'o máximo precisa ficar pelo menos ' . $br(VPD_FAIXA_LARGURA) . ' kPa acima do mínimo';
+    }
+    return null;
+}
+
+// Comando "clima_vpd": "ativa;fase;min;max;travaTemp;travaUmid;minLigado;minDesligado",
+// ex.: "1;2;1.20;1.60;28.0;60;3;3" (fase 0 muda, 1 vegetação, 2 floração; tempos mínimos em minutos).
+function clima_valido(string $valor): bool
+{
+    if (!preg_match('/^([01]);([0-2]);(\d\.\d{1,2});(\d\.\d{1,2});(\d{2}(?:\.\d)?);(\d{2});(\d{1,2});(\d{1,2})$/', $valor, $m)) {
+        return false;
+    }
+    $travaTemp = (float) $m[5];
+    $travaUmid = (int) $m[6];
+    $minLigado = (int) $m[7];
+    $minDesligado = (int) $m[8];
+    return erro_faixa_vpd((float) $m[3], (float) $m[4]) === null
+        && $travaTemp >= 15 && $travaTemp <= 40 && $travaUmid >= 30 && $travaUmid <= 95
+        && $minLigado >= 1 && $minLigado <= 15 && $minDesligado >= 1 && $minDesligado <= 15;
+}
+
+// Depois de reiniciar, o ESP32 informa o clima que tirou da memória (evento "clima_vpd" de origem
+// "boot"). Se ele voltou no padrão de fábrica (memória apagada, ex.: regravação com limpeza da flash)
+// e antes disso usava outra configuração, reenvia a última que ele tinha confirmado.
+// $idEvento = id do evento de boot recém-gravado. Devolve true se enfileirou o reenvio.
+function ressincronizar_clima_apos_boot(string $valorBoot, int $idEvento): bool
+{
+    if ($valorBoot !== CLIMA_PADRAO_FIRMWARE) {
+        return false; // a memória do ESP32 está preservada: vale o que ele informou
+    }
+    $stmt = db()->prepare("SELECT valor FROM comandos_sistema WHERE tipo = 'clima_vpd' AND id < ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$idEvento]);
+    $anterior = $stmt->fetchColumn();
+    if ($anterior === false || $anterior === $valorBoot || !clima_valido((string) $anterior)) {
+        return false;
+    }
+    $pendente = (int) db()->query("SELECT COUNT(*) FROM comandos_pendentes WHERE tipo = 'clima_vpd' AND status = 'pendente'")->fetchColumn();
+    if ($pendente > 0) {
+        return false; // já há um ajuste a caminho (mais novo que o confirmado)
+    }
+    enfileirar_sincronizacao('clima_vpd', 'clima', (string) $anterior);
+    registrar_evento_painel('dispositivo', 'clima', 'clima_reenviado', 'servidor');
+    return true;
+}
+
 // Mantém a faixa de VPD do ESP32 igual à da fase em uso, sem ninguém precisar mexer em Comandos.
 // O ESP32 guarda uma faixa só (a do comando "clima_vpd"), usada pelo clima do umidificador e pelo
 // aquecedor noturno. Esta função reenvia esse comando quando:
 //   - a fase do cultivo muda ($modo = 'vegetativo' ou 'floracao'): passa para a faixa da nova fase;
 //   - as faixas ou travas são alteradas em Configurações ($modo = null): mesma fase, valores novos.
 // Ligado/desligado do clima não muda. Sem registro do ESP32 (firmware antigo), não faz nada.
-// Devolve true se enfileirou um comando.
-function sincronizar_faixa_vpd(?string $modo = null, string $usuario = 'sincronizacao'): bool
+// Devolve true se enfileirou um comando. Se a faixa ou as travas salvas estiverem fora do que o
+// ESP32 aceita, não envia e explica o motivo em $motivo (antes isso passava em silêncio).
+function sincronizar_faixa_vpd(?string $modo = null, string $usuario = 'sincronizacao', ?string &$motivo = null): bool
 {
+    $motivo = null;
     // Ponto de partida: o último pedido ainda não entregue; se não houver, o que o ESP32 confirmou.
     $atual = db()->query("SELECT valor FROM comandos_pendentes WHERE tipo = 'clima_vpd' AND status = 'pendente' ORDER BY id DESC LIMIT 1")->fetchColumn();
     if ($atual === false) {
@@ -400,9 +468,27 @@ function sincronizar_faixa_vpd(?string $modo = null, string $usuario = 'sincroni
     $travaUmid = (int) round((float) ($cfg['clima_trava_umid'] ?? $p[5]));
     $minLigado = (int) ($cfg['clima_min_ligado'] ?? $p[6]);
     $minDesligado = (int) ($cfg['clima_min_desligado'] ?? $p[7]);
-    // Mesmos limites que o enviar_comando.php aceita do painel.
-    if ($min < 0.2 || $max > 2.5 || ($max - $min) < 0.1 || $travaTemp < 15 || $travaTemp > 40 || $travaUmid < 30 || $travaUmid > 95
-        || $minLigado < 1 || $minLigado > 15 || $minDesligado < 1 || $minDesligado > 15) {
+    // Mesmos limites que o enviar_comando.php aceita do painel (e que o firmware confere).
+    $nomes = [0 => 'muda', 1 => 'vegetação', 2 => 'floração'];
+    $erroFaixa = erro_faixa_vpd($min, $max);
+    if ($erroFaixa !== null) {
+        $motivo = 'Faixa de VPD da ' . $nomes[$fase] . ' não enviada ao ESP32: ' . $erroFaixa . '.';
+    } elseif ($travaTemp < 15 || $travaTemp > 40 || $travaUmid < 30 || $travaUmid > 95) {
+        $motivo = 'Travas do clima não enviadas ao ESP32: use 15 a 40 °C e 30 a 95 %.';
+    } elseif ($minLigado < 1 || $minLigado > 15 || $minDesligado < 1 || $minDesligado > 15) {
+        $motivo = 'Tempos mínimos do clima não enviados ao ESP32: use de 1 a 15 min.';
+    }
+    if ($motivo !== null) {
+        error_log('sincronizar_faixa_vpd: ' . $motivo);
+        // Fica visível em Eventos, no máximo uma vez por dia.
+        try {
+            $recente = (int) db()->query("SELECT COUNT(*) FROM comandos_sistema WHERE tipo = 'alerta' AND alvo = 'Clima' AND criado_em >= NOW() - INTERVAL 1 DAY")->fetchColumn();
+            if ($recente === 0) {
+                registrar_evento_painel('alerta', 'Clima', 'faixa_vpd_recusada', 'servidor');
+            }
+        } catch (Throwable $e) {
+            error_log('sincronizar_faixa_vpd (evento): ' . $e->getMessage());
+        }
         return false;
     }
     $igual = (int) $p[1] === $fase && abs((float) $p[2] - $min) < 0.005 && abs((float) $p[3] - $max) < 0.005
@@ -632,6 +718,7 @@ function atividade_dispositivo(int $limite = 4): array
                 'token_revogado' => ['falha', 'Token revogado', 'O ESP32 não consegue mais enviar dados'],
                 'vinculado' => ['ok', 'Dispositivo vinculado', 'Token sd_hw_••••' . $extra . ' entregue ao ESP32'],
                 'vinculo_gerado' => ['ok', 'Token de vinculação gerado', 'Válido por ' . VINCULO_DISPOSITIVO_MIN . ' min'],
+                'clima_reenviado' => ['atencao', 'Clima por VPD reenviado', 'O ESP32 voltou no padrão de fábrica e recebeu a configuração anterior'],
             ];
             if (isset($mapa[$valor])) {
                 [$item['cor'], $item['titulo'], $item['detalhe']] = $mapa[$valor];
@@ -649,6 +736,24 @@ function texto_duracao(int $seg): string
     }
     $min = intdiv($seg + 30, 60);
     return $min < 60 ? $min . ' min' : intdiv($min, 60) . 'h' . ($min % 60 ? ' ' . ($min % 60) . 'min' : '');
+}
+
+// ---------------- Limpeza do histórico ----------------
+// Com leituras a cada 20 s o banco recebe ~4.300 linhas por dia (1,6 milhão por ano). O painel e o
+// CSV só usam os últimos 30 dias, então o cron apaga o que passar de RETENCAO_LEITURAS_DIAS.
+// Para mudar, defina no config.php:  const RETENCAO_LEITURAS_DIAS = 365;   (0 = nunca apagar)
+const RETENCAO_LEITURAS_DIAS_PADRAO = 180;
+const RETENCAO_MINIMA_DIAS = 35;       // nunca apaga o que o painel ainda mostra (30 dias)
+const RETENCAO_LOTE = 5000;            // linhas por execução do cron (não trava o banco)
+
+function limpar_leituras_antigas(): int
+{
+    $dias = defined('RETENCAO_LEITURAS_DIAS') ? (int) constant('RETENCAO_LEITURAS_DIAS') : RETENCAO_LEITURAS_DIAS_PADRAO;
+    if ($dias <= 0) {
+        return 0;
+    }
+    $dias = max(RETENCAO_MINIMA_DIAS, $dias);
+    return (int) db()->exec('DELETE FROM leituras_ambiente WHERE criado_em < NOW() - INTERVAL ' . $dias . ' DAY ORDER BY id ASC LIMIT ' . RETENCAO_LOTE);
 }
 
 // Cron: registra "Sem dados" uma vez por queda (a volta é registrada na próxima leitura).

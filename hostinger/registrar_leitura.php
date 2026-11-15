@@ -53,6 +53,11 @@ try {
         );
     }
     $stmt->execute($valores);
+    // Com leituras a cada 20 s, as conferências abaixo (várias consultas cada) rodam em 1 de cada
+    // 3 leituras, ou seja, 1 vez por minuto como antes. Firmware antigo (1 leitura por minuto): sempre.
+    $idLeitura = (int) db()->lastInsertId();
+    $anterior = db()->query('SELECT TIMESTAMPDIFF(SECOND, criado_em, NOW()) FROM leituras_ambiente WHERE id < ' . $idLeitura . ' ORDER BY id DESC LIMIT 1')->fetchColumn();
+    $conferir = $anterior === false || $anterior === null || (int) $anterior >= 45 || $idLeitura % 3 === 0;
 
     try {
         registrar_contato_dispositivo($data);
@@ -61,7 +66,9 @@ try {
     }
 
     try {
-        verificar_sensor_solo($valores[0]);
+        if ($conferir) {
+            verificar_sensor_solo($valores[0]);
+        }
     } catch (Throwable $e) {
         error_log('verificar_sensor_solo: ' . $e->getMessage());
     }
@@ -69,7 +76,9 @@ try {
     try {
         if (telegram_configurado()) {
             avaliar_offline();        // avisa "voltou a enviar" na hora
-            avaliar_faixas_leitura(); // leitura fora da faixa
+            if ($conferir) {
+                avaliar_faixas_leitura(); // leitura fora da faixa
+            }
         }
     } catch (Throwable $e) {
         error_log('notificacoes: ' . $e->getMessage());

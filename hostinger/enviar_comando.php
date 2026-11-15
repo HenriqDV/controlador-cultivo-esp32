@@ -15,24 +15,7 @@ $valor = trim((string) ($data['valor'] ?? ''));
 // Whitelist: só comandos que o firmware entende (aplicarComandoRemotoWeb()).
 $relesValidos = ['Irrigacao', 'Ventilador', 'Umidificador', 'Entrada de Ar', 'Aquecedor', 'Saida de Ar'];
 
-// Clima por VPD: "ativa;fase;min;max;travaTemp;travaUmid;minLigado;minDesligado",
-// ex.: "1;2;1.20;1.60;28.0;60;3;3" (fase 0 muda, 1 vegetação, 2 floração; tempos mínimos em minutos).
-// Mesmos limites do firmware (interpretarValorClima()).
-function clima_valido(string $valor): bool
-{
-    if (!preg_match('/^([01]);([0-2]);(\d\.\d{1,2});(\d\.\d{1,2});(\d{2}(?:\.\d)?);(\d{2});(\d{1,2});(\d{1,2})$/', $valor, $m)) {
-        return false;
-    }
-    $min = (float) $m[3];
-    $max = (float) $m[4];
-    $travaTemp = (float) $m[5];
-    $travaUmid = (int) $m[6];
-    $minLigado = (int) $m[7];
-    $minDesligado = (int) $m[8];
-    return $min >= 0.2 && $max <= 2.5 && ($max - $min) >= 0.1
-        && $travaTemp >= 15 && $travaTemp <= 40 && $travaUmid >= 30 && $travaUmid <= 95
-        && $minLigado >= 1 && $minLigado <= 15 && $minDesligado >= 1 && $minDesligado <= 15;
-}
+// Clima por VPD: formato e limites em clima_valido() (migracoes.php), os mesmos do firmware.
 
 $valido = false;
 if ($tipo === 'rele' && in_array($alvo, $relesValidos, true) && in_array($valor, ['ligado', 'desligado'], true)) {

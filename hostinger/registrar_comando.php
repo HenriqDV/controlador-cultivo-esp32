@@ -38,6 +38,17 @@ try {
         substr($valor, 0, 80),
         substr($origem, 0, 40),
     ]);
+    $idEvento = (int) db()->lastInsertId();
+
+    // O ESP32 reiniciou e informou o clima no padrão de fábrica (perdeu a memória): reenvia a
+    // configuração que ele usava. Fase e horários de luz já tinham esse reenvio; o clima não.
+    if ($tipo === 'clima_vpd' && $origem === 'boot') {
+        try {
+            ressincronizar_clima_apos_boot($valor, $idEvento);
+        } catch (Throwable $e) {
+            error_log('ressincronizar_clima_apos_boot: ' . $e->getMessage());
+        }
+    }
 
     // ESP32 informou outra duração do modo manual (ex.: memória do relógio zerada):
     // reenvia a do painel, se ainda não houver um envio pendente.

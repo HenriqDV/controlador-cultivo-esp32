@@ -27,6 +27,15 @@ try {
 }
 
 try {
+    $apagadas = limpar_leituras_antigas(); // histórico além da retenção (migracoes.php)
+    if ($apagadas > 0) {
+        echo date('c') . " leituras antigas apagadas: $apagadas\n";
+    }
+} catch (Throwable $e) {
+    echo date('c') . ' limpeza: ' . $e->getMessage() . "\n";
+}
+
+try {
     executar_notificacoes(); // offline, timer sem confirmação, resumo diário e vínculo do Telegram
 } catch (Throwable $e) {
     echo date('c') . ' notificações: ' . $e->getMessage() . "\n";

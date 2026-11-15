@@ -17,6 +17,8 @@ function numero(string $v): ?float
 }
 
 // Limites físicos de cada preferência numérica: [mínimo, máximo, casas decimais, rótulo].
+// As faixas de VPD usam os limites que o firmware aceita (migracoes.php): fora deles o ESP32
+// descartava o comando em silêncio e continuava com a faixa antiga.
 const LIMITES_PREFERENCIAS = [
     'solo_ideal_min' => [0, 100, 0, 'Umidade do solo'],
     'solo_ideal_max' => [0, 100, 0, 'Umidade do solo'],
@@ -24,12 +26,12 @@ const LIMITES_PREFERENCIAS = [
     'umid_alerta_max' => [0, 100, 0, 'Umidade interna'],
     'temp_alerta_min' => [0, 50, 1, 'Temperatura interna'],
     'temp_alerta_max' => [0, 50, 1, 'Temperatura interna'],
-    'vpd_vegetativo_min' => [0, 3, 2, 'VPD da vegetação'],
-    'vpd_vegetativo_max' => [0, 3, 2, 'VPD da vegetação'],
-    'vpd_floracao_min' => [0, 3, 2, 'VPD da floração'],
-    'vpd_floracao_max' => [0, 3, 2, 'VPD da floração'],
-    'vpd_muda_min' => [0, 3, 2, 'VPD da muda'],
-    'vpd_muda_max' => [0, 3, 2, 'VPD da muda'],
+    'vpd_vegetativo_min' => [VPD_FAIXA_MIN, VPD_FAIXA_MAX, 2, 'VPD da vegetação'],
+    'vpd_vegetativo_max' => [VPD_FAIXA_MIN, VPD_FAIXA_MAX, 2, 'VPD da vegetação'],
+    'vpd_floracao_min' => [VPD_FAIXA_MIN, VPD_FAIXA_MAX, 2, 'VPD da floração'],
+    'vpd_floracao_max' => [VPD_FAIXA_MIN, VPD_FAIXA_MAX, 2, 'VPD da floração'],
+    'vpd_muda_min' => [VPD_FAIXA_MIN, VPD_FAIXA_MAX, 2, 'VPD da muda'],
+    'vpd_muda_max' => [VPD_FAIXA_MIN, VPD_FAIXA_MAX, 2, 'VPD da muda'],
     'clima_trava_temp' => [15, 40, 1, 'Trava do aquecedor'],
     'clima_trava_umid' => [30, 95, 0, 'Trava do umidificador'],
     'clima_min_ligado' => [1, 15, 0, 'Tempo mínimo ligado'],
@@ -115,6 +117,17 @@ try {
             }
         }
 
+        // Faixas de VPD alteradas agora: também precisam da largura mínima que o firmware exige.
+        foreach (['vegetativo' => 'VPD da vegetação', 'floracao' => 'VPD da floração', 'muda' => 'VPD da muda'] as $f => $rotulo) {
+            if (!isset($novos['vpd_' . $f . '_min']) && !isset($novos['vpd_' . $f . '_max'])) {
+                continue;
+            }
+            $erroFaixa = erro_faixa_vpd((float) $atual['vpd_' . $f . '_min'], (float) $atual['vpd_' . $f . '_max']);
+            if ($erroFaixa !== null) {
+                responder(['ok' => false, 'erro' => 'faixa_invalida', 'campo' => 'vpd_' . $f . '_min', 'detalhe' => $rotulo . ': ' . $erroFaixa . '.'], 422);
+            }
+        }
+
         $antes = ler_configuracoes();
         foreach ($novos as $chave => $valor) {
             salvar_configuracao($chave, $valor);
@@ -124,12 +137,14 @@ try {
         }
         // Faixa de VPD ou travas alteradas: o ESP32 recebe os valores novos da fase em uso
         // (clima do umidificador e aquecedor noturno), sem precisar reenviar em Comandos.
+        // "aviso": salvou, mas o ESP32 não recebeu a faixa (valor antigo fora dos limites, por exemplo).
+        $aviso = null;
         try {
-            sincronizar_faixa_vpd(null, (string) ($_SESSION['usuario'] ?? 'painel'));
+            sincronizar_faixa_vpd(null, (string) ($_SESSION['usuario'] ?? 'painel'), $aviso);
         } catch (Throwable $e) {
             error_log('sincronizar_faixa_vpd: ' . $e->getMessage());
         }
-        responder(['ok' => true, 'config' => ler_configuracoes()]);
+        responder(['ok' => true, 'config' => ler_configuracoes(), 'aviso' => $aviso]);
     }
 
     $config = ler_configuracoes();

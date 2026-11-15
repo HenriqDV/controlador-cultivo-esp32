@@ -5,7 +5,7 @@ require __DIR__ . '/api_comum.php';
 
 // Estado atual do ESP32 (firmware 2.8.0+), enviado a cada 5 s: leituras, fase, luz e relés.
 // Guarda só o último (uma linha), para o painel mostrar ao vivo pelo ao_vivo.php.
-// O histórico continua em registrar_leitura.php (1 por minuto).
+// O histórico continua em registrar_leitura.php (1 a cada 20 s).
 exigir_dispositivo(); // token do hardware ou API_KEY (modo legado)
 $data = read_json_body();
 

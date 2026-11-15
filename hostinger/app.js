@@ -1599,6 +1599,7 @@ function corDoEvento(c) {
 function descricaoEvento(c) {
   if (ehEventoAutomacao(c)) return descricaoAutomacao(c);
   if (c.tipo === 'alerta' && c.alvo === 'Solo') return c.valor === 'normalizado' ? 'Sensor de solo voltou a ler' : 'Sensor de solo sem leitura';
+  if (c.tipo === 'alerta' && c.alvo === 'Clima') return 'Faixa de VPD fora dos limites: não enviada ao ESP32';
   if (c.tipo === 'alerta') return 'Alerta: ' + c.alvo + ' (' + c.valor + ')';
   if (c.tipo === 'acesso') return 'Acesso liberado';
   if (c.tipo === 'notificacao') {
@@ -2323,7 +2324,7 @@ function vpdDeLeitura(l) {
 function vpdEm(ms) {
   let melhor = null, dist = Infinity;
   leituras24h.forEach(l => {
-    const t = new Date(String(l.criado_em || l.dispositivo_timestamp || '').replace(' ', 'T')).getTime();
+    const t = msLeitura(l); // relógio do ESP32, o mesmo dos eventos (criado_em é o relógio do banco e pode estar em outro fuso)
     const v = vpdDeLeitura(l);
     if (isNaN(t) || v === null) return;
     const d = Math.abs(t - ms);
@@ -2561,6 +2562,7 @@ async function salvarAjustesClima() {
     const d = await resp.json();
     if (!d.ok) { mostrarToast(d.detalhe || ('erro: ' + (d.erro || 'desconhecido')), 'erro'); return; }
     CONFIG = normalizarConfig(Object.assign({}, CONFIG, d.config));
+    if (d.aviso) mostrarToast(d.aviso, 'erro'); // salvou, mas o ESP32 não recebeu a faixa
   } catch (e) { mostrarToast('falha de rede: ' + e.message, 'erro'); return; }
   climaRascunho = null;
   // A fase em uso recebe a faixa nova; as outras só guardam o valor para quando forem escolhidas.
@@ -2765,7 +2767,7 @@ function faixaAutomacaoEm(a, ms) {
 function leituraEm(campo, ms) {
   let melhor = null, dist = Infinity;
   leituras24h.forEach(l => {
-    const t = new Date(String(l.criado_em || l.dispositivo_timestamp || '').replace(' ', 'T')).getTime();
+    const t = msLeitura(l); // relógio do ESP32, o mesmo dos eventos (criado_em é o relógio do banco e pode estar em outro fuso)
     const v = l[campo];
     if (isNaN(t) || v === null || v === undefined) return;
     const d = Math.abs(t - ms);
@@ -3541,7 +3543,8 @@ formConfig.addEventListener('submit', async ev => {
     aplicarConfiguracoes();
     carregarAoVivo().catch(() => {});
     if (ultimaLeitura) atualizarVPD(ultimaLeitura.temp_interna, ultimaLeitura.umid_interna);
-    mostrarToast('✓ configurações salvas', 'ok');
+    // "aviso": salvou, mas o ESP32 não recebeu a faixa de VPD (fora dos limites do firmware).
+    if (d.aviso) mostrarToast(d.aviso, 'erro'); else mostrarToast('✓ configurações salvas', 'ok');
   } catch (e) {
     mostrarToast('falha de rede: ' + e.message, 'erro');
     btn.disabled = false;
@@ -3703,7 +3706,7 @@ function segundosSemDadosServidor() {
   if (!STATUS || STATUS.segundos_sem_dados === null) return null;
   return STATUS.segundos_sem_dados + Math.round((Date.now() - statusRecebidoEm) / 1000);
 }
-// Tempo desde o dado mais novo: o do banco (1 por minuto) ou o estado ao vivo (a cada 5 s).
+// Tempo desde o dado mais novo: o do banco (1 a cada 20 s) ou o estado ao vivo (a cada 5 s).
 function segundosSemDados() {
   const servidor = segundosSemDadosServidor();
   if (!aoVivoEm) return servidor;

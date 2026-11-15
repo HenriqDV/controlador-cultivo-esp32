@@ -1,7 +1,7 @@
 -- Estrutura completa do banco (instalação nova). Importe no phpMyAdmin.
 -- Bancos antigos são atualizados automaticamente por migracoes.php.
 
--- Leituras dos sensores (1 por minuto). vpd em kPa, calculado em registrar_leitura.php.
+-- Leituras dos sensores (1 a cada 20 s; o cron apaga as mais antigas que a retenção). vpd em kPa, calculado em registrar_leitura.php.
 CREATE TABLE IF NOT EXISTS leituras_ambiente (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
