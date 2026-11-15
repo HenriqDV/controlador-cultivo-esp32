@@ -122,6 +122,13 @@ try {
         if (isset($novos['luz_manual_min']) && $novos['luz_manual_min'] !== $antes['luz_manual_min']) {
             enfileirar_duracao_luz($novos['luz_manual_min'], (string) ($_SESSION['usuario'] ?? 'painel'));
         }
+        // Faixa de VPD ou travas alteradas: o ESP32 recebe os valores novos da fase em uso
+        // (clima do umidificador e aquecedor noturno), sem precisar reenviar em Comandos.
+        try {
+            sincronizar_faixa_vpd(null, (string) ($_SESSION['usuario'] ?? 'painel'));
+        } catch (Throwable $e) {
+            error_log('sincronizar_faixa_vpd: ' . $e->getMessage());
+        }
         responder(['ok' => true, 'config' => ler_configuracoes()]);
     }
 

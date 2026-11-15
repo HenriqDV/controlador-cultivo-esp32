@@ -2,10 +2,10 @@
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo">
+    <a class="sidebar-logo" href="#inicio" data-ir-aba="inicio" title="Ir para o In&iacute;cio" aria-label="Ir para o In&iacute;cio">
       <img class="logo-marca" src="img/logo.png" alt="" width="70" height="70">
       <span class="marca-nome" id="nomeCultivoSidebar">Smart Demetra</span>
-    </div>
+    </a>
     <nav class="sidebar-nav">
       <button type="button" class="nav-item ativo" data-aba="inicio"><svg data-lucide="home"></svg>In&iacute;cio</button>
       <button type="button" class="nav-item" data-aba="relogio"><svg data-lucide="clock"></svg>Rel&oacute;gio de eventos</button>
@@ -26,9 +26,9 @@
   <main class="conteudo">
 
     <header class="topo-mobile">
-      <div class="topo-logo">
+      <a class="topo-logo" href="#inicio" data-ir-aba="inicio" title="Ir para o In&iacute;cio" aria-label="Ir para o In&iacute;cio">
         <img class="logo-marca" src="img/logo.png" alt="" width="66" height="66">
         <span class="marca-nome" id="nomeCultivoTopo">Smart Demetra</span>
-      </div>
+      </a>
       <button type="button" class="btn-hamburger" id="btnHamburger" aria-label="Abrir menu"><svg data-lucide="menu"></svg></button>
     </header>

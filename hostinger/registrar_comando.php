@@ -90,6 +90,17 @@ try {
         } catch (Throwable $e) {
             error_log('registrar_inicio_fase: ' . $e->getMessage());
         }
+        // A fase mudou de verdade (painel, troca programada ou menu do OLED): a faixa de VPD do clima
+        // e do aquecedor noturno passa para a da nova fase. Reconfirmar a mesma fase não mexe em nada
+        // (quem escolheu "Muda" em Comandos continua com ela).
+        try {
+            $ultimas = db()->query("SELECT valor FROM comandos_sistema WHERE tipo = 'modo_cultivo' ORDER BY id DESC LIMIT 2")->fetchAll(PDO::FETCH_COLUMN);
+            if (!isset($ultimas[1]) || $ultimas[1] !== $valor) {
+                sincronizar_faixa_vpd($valor, 'troca_de_fase');
+            }
+        } catch (Throwable $e) {
+            error_log('sincronizar_faixa_vpd: ' . $e->getMessage());
+        }
     }
 
     if (ob_get_length()) {

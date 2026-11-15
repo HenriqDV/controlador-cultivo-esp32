@@ -22,7 +22,11 @@ function mudarAba(aba) {
   fecharSidebar();
   try { history.replaceState(null, '', '#' + aba); } catch (e) { /* ignora */ }
   // Chart.js precisa recalcular o tamanho ao reaparecer.
-  if (aba === 'historico') { setTimeout(() => { [graficoTemperatura, graficoUmidade, graficoSolo, graficoAgua, graficoVpd].forEach(g => { if (g) g.resize(); }); }, 0); }
+  if (aba === 'historico') {
+    if (graficos24hDesatualizados && periodoAtual === '24h' && typeof Chart !== 'undefined') { graficos24hDesatualizados = false; desenharGraficos(leituras24h.slice(), '24h', true); }
+    setTimeout(() => { [graficoTemperatura, graficoUmidade, graficoSolo, graficoAgua, graficoVpd].forEach(g => { if (g) g.resize(); }); }, 0);
+  }
+  if (aba === 'inicio') { setTimeout(() => { Object.values(h6Graficos).forEach(g => g.resize()); }, 0); }
   if (aba === 'relogio') renderizarRoda();
   if (aba === 'fotoperiodo') renderizarFotoperiodo();
   if (aba === 'caixa') { renderizarCaixa(); setTimeout(() => { if (graficoCaixa) graficoCaixa.resize(); }, 0); }
@@ -253,8 +257,7 @@ function renderizarCaixa() {
     pill.className = 'pill pill-neutro';
     pill.textContent = ult ? 'Sensor sem leitura' : 'Aguardando o sensor';
     document.getElementById('cxPreenchimento').style.width = '0%';
-    ['cxAltura', 'cxFalta', 'cxVariacao'].forEach(id => { document.getElementById(id).textContent = '—'; });
-    document.getElementById('cxUltima').textContent = ult ? hhmmDeMs(msLeitura(ult)) : '—';
+    ['cxAltura', 'cxFalta', 'cxVariacao', 'cxConsumo', 'cxAutonomia', 'cxEncher'].forEach(id => { const el = document.getElementById(id); el.textContent = '—'; el.classList.remove('atencao'); });
     bloqueio.hidden = true;
   } else {
     document.getElementById('cxLitros').textContent = brN(litros, 1) + ' L';
@@ -269,8 +272,25 @@ function renderizarCaixa() {
     const primeira = com[0];
     const variacao = primeira ? litros - Number(primeira.agua_litros) : 0;
     document.getElementById('cxVariacao').textContent = (variacao > 0.05 ? '+' : variacao < -0.05 ? '−' : '') + brN(Math.abs(variacao), 1) + ' L';
-    document.getElementById('cxUltima').textContent = hhmmDeMs(msLeitura(atual));
     bloqueio.hidden = !(pct < CAIXA_PROTECAO_PCT);
+    // Projeção: consumo médio (7 dias), autonomia e quando o aviso de nível baixo deve disparar.
+    const consumo = consumoCaixaLitrosDia();
+    const cEl = document.getElementById('cxConsumo'), aEl = document.getElementById('cxAutonomia'), eEl = document.getElementById('cxEncher');
+    aEl.classList.remove('atencao'); eEl.classList.remove('atencao');
+    if (consumo === null) { cEl.textContent = 'medindo…'; aEl.textContent = '—'; eEl.textContent = '—'; }
+    else if (consumo < 0.2) { cEl.textContent = brN(consumo, 1) + ' L/dia'; aEl.textContent = 'sem consumo'; eEl.textContent = '—'; }
+    else {
+      cEl.textContent = brN(consumo, 1) + ' L/dia';
+      const dias = litros / consumo, diasAviso = (litros - CAIXA_CAPACIDADE_L * limite / 100) / consumo;
+      aEl.textContent = dias < 1 ? '~' + Math.max(1, Math.round(dias * 24)) + ' h' : '~' + brN(dias, dias < 10 ? 1 : 0) + (dias < 2 ? ' dia' : ' dias');
+      aEl.classList.toggle('atencao', dias < 3);
+      if (diasAviso <= 0) { eEl.textContent = 'agora'; eEl.classList.add('atencao'); }
+      else {
+        const d = new Date(msLeitura(atual) + diasAviso * 86400000);
+        eEl.textContent = diasAviso < 1 ? 'hoje, ' + hhmmDeMs(d.getTime()) : d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '');
+        eEl.classList.toggle('atencao', diasAviso < 2);
+      }
+    }
   }
 
   // gráfico de 24 h
@@ -280,7 +300,10 @@ function renderizarCaixa() {
   document.getElementById('graficoCaixaSkeleton').style.display = 'none';
   if (!com.length) { mostrarMensagemGrafico('graficoCaixa', 'sem leituras da caixa d\'água nas últimas 24 horas'); return; }
   mostrarMensagemGrafico('graficoCaixa', null);
-  graficoCaixa = montarGrafico('graficoCaixa', leituras24h, '24h', [{ label: 'Caixa d\'água (L)', campo: 'agua_litros', cor: '#6fb3e0' }], 'L', { min: 0, suggestedMax: CAIXA_CAPACIDADE_L });
+  const limiteL = CAIXA_CAPACIDADE_L * limite / 100;
+  graficoCaixa = montarGrafico('graficoCaixa', leituras24h, '24h', [{ label: 'Caixa d\'água', campo: 'agua_litros', cor: '#6fb3e0' }], 'L', { min: 0, suggestedMax: CAIXA_CAPACIDADE_L },
+    { faixa: [limiteL, CAIXA_CAPACIDADE_L], cor: '#6fb3e0' });
+  escreverStats('cxGraficoStats', leituras24h, 'agua_litros', v => brN(v, 1) + ' L', null, [['Aviso', brN(limiteL, 0) + ' L', 'ext']]);
   const ds = graficoCaixa.data.datasets[0];
   ds.fill = true; ds.backgroundColor = 'rgba(111,179,224,.12)'; ds.tension = 0.15;
   graficoCaixa.update();
@@ -310,6 +333,7 @@ function avaliarVpd(vpd, modo) {
 }
 
 function atualizarVPD(tempInterna, umidInterna) {
+  if (!document.getElementById('vpdValor')) return; // a barra de VPD saiu da Início (o VPD está no bloco das 6 h)
   tirarEsqueleto('vpdValor');
   const pillEl = document.getElementById('vpdZonaPill');
   const idealEl = document.getElementById('vpdIdeal');
@@ -359,28 +383,34 @@ let ultimoBloqueioIrrigacao = null;
 
 // Mostra uma leitura nos cards e barras do Início (do banco ou do estado ao vivo).
 function aplicarLeituraNosCards(ultima, redesenharReles) {
-  tirarEsqueleto('statTempInterna'); tirarEsqueleto('statUmidInterna');
   tirarEsqueleto('statTempExterna'); tirarEsqueleto('statUmidExterna');
-  tirarEsqueleto('statSolo');
-  document.getElementById('statTempInterna').textContent = fmtTemp(ultima.temp_interna);
-  document.getElementById('statUmidInterna').textContent = fmtUmid(ultima.umid_interna);
   document.getElementById('statTempExterna').textContent = fmtTemp(ultima.temp_externa);
   document.getElementById('statUmidExterna').textContent = fmtUmid(ultima.umid_externa);
-  document.getElementById('statSolo').textContent = soloSemLeitura ? '—' : fmtSolo(ultima.solo_percentual);
   atualizarVPD(ultima.temp_interna, ultima.umid_interna);
   atualizarSoloBarra(ultima.solo_percentual);
   ultimaLeitura = ultima;
   atualizarAguaBarra(ultima);
   aplicarAlertasCards(ultima);
+  h6EscreverInfo(); // temperatura, umidade e VPD internos (valor ao vivo)
   // O card da irrigação depende do nível da caixa (proteção da bomba). Com o ao vivo isto roda
   // a cada 2 s: os relés só são redesenhados quando o bloqueio muda ou a cada leitura do banco
-  // (1 por minuto, que também atualiza o "há quanto tempo"), para não atrapalhar um clique.
+  // (no máximo 1 vez por minuto, que também atualiza o "há quanto tempo"), para não atrapalhar um clique.
   const pct = caixaPercentualAtual();
   const bloqueio = pct !== null && pct < CAIXA_PROTECAO_PCT;
   if (ultimoTodosComandos.length && (redesenharReles || bloqueio !== ultimoBloqueioIrrigacao)) renderizarBotoesReles(ultimoTodosComandos);
   ultimoBloqueioIrrigacao = bloqueio;
 }
 
+let relesRedesenhadosEm = 0;
+// Intervalo típico entre as leituras gravadas (mediana das últimas): 60 s no firmware antigo, 20 s a partir do 2.11.
+function intervaloLeiturasMs() {
+  const ult = leituras24h.slice(-60).map(msLeitura).filter(t => !isNaN(t));
+  const d = [];
+  for (let i = 1; i < ult.length; i++) if (ult[i] > ult[i - 1]) d.push(ult[i] - ult[i - 1]);
+  if (d.length < 3) return 60000;
+  d.sort((a, b) => a - b);
+  return d[Math.floor(d.length / 2)];
+}
 // Recalcula os avisos de "sensor sem leitura" e mostra a leitura mais recente das 24h.
 function aplicarLeituras24h() {
   const linhas = leituras24h;
@@ -389,19 +419,30 @@ function aplicarLeituras24h() {
     soloSemLeitura = ultimas3.length === 3 && ultimas3.every(l => l.solo_percentual === null);
     aguaSemLeitura = ultimas3.length === 3 && linhas.some(l => l.agua_litros !== null && l.agua_litros !== undefined) && ultimas3.every(l => l.agua_litros === null || l.agua_litros === undefined);
     // Com o estado ao vivo mais novo que o banco, os cards ficam com o ao vivo.
-    if (!aoVivoRecente()) aplicarLeituraNosCards(linhas[linhas.length - 1], true);
-    else if (ultimoTodosComandos.length) renderizarBotoesReles(ultimoTodosComandos);
+    // Os relés são redesenhados no máximo 1 vez por minuto por causa de leitura nova (chegam a cada 20 s),
+    // para não atrapalhar um clique.
+    const redesenhar = Date.now() - relesRedesenhadosEm >= 55000;
+    if (redesenhar) relesRedesenhadosEm = Date.now();
+    if (!aoVivoRecente()) aplicarLeituraNosCards(linhas[linhas.length - 1], redesenhar);
+    else if (redesenhar && ultimoTodosComandos.length) renderizarBotoesReles(ultimoTodosComandos);
   }
   if (abaAtual === 'caixa') renderizarCaixa();
+  renderizarInicio();
 }
 
 function maiorIdLeitura(linhas) {
   return linhas.reduce((m, l) => Math.max(m, Number(l.id) || 0), 0);
 }
 
+let cargaCompletaEmCurso = null; // duas partes do painel pedindo as 24 h ao mesmo tempo dividem o mesmo pedido
 async function carregarResumo() {
-  // Carga completa das 24h (dados crus). Depois disso, só as leituras novas (carregarLeiturasNovas).
-  const d = await buscarJson('dados.php?periodo=24h');
+  // Carga completa das 24h (dados crus) só na primeira vez. Com uma leitura a cada 20 s são ~4.300 linhas:
+  // depois disso, até a atualização completa de 5 min busca só as leituras novas.
+  if (leituras24hCarregadas && ultimoIdLeitura > 0) return carregarLeiturasNovas();
+  if (!cargaCompletaEmCurso) cargaCompletaEmCurso = buscarJson('dados.php?periodo=24h').finally(() => { cargaCompletaEmCurso = null; });
+  const emCurso = cargaCompletaEmCurso;
+  const d = await emCurso;
+  if (leituras24hCarregadas && ultimoIdLeitura >= maiorIdLeitura(d.dados || [])) return; // a outra chamada já aplicou esta carga
   leituras24h = d.dados || [];
   leituras24hCarregadas = true;
   ultimoIdLeitura = maiorIdLeitura(leituras24h);
@@ -421,7 +462,37 @@ async function carregarLeiturasNovas() {
   if (!isNaN(limite)) leituras24h = leituras24h.filter(l => { const t = msLeitura(l); return isNaN(t) || t >= limite; });
   aplicarLeituras24h();
   // Gráficos de 24h: redesenha com os dados que já estão aqui, sem buscar de novo.
-  if (periodoAtual === '24h' && typeof Chart !== 'undefined') desenharGraficos(leituras24h.slice(), '24h', true);
+  // Fora da aba Histórico só marca como desatualizado (chega leitura nova a cada 20 s); redesenha ao abrir a aba.
+  if (periodoAtual === '24h' && typeof Chart !== 'undefined') {
+    if (abaAtual === 'historico') desenharGraficos(leituras24h.slice(), '24h', true);
+    else graficos24hDesatualizados = true;
+  }
+}
+let graficos24hDesatualizados = false;
+
+// Gráficos longos: com leituras a cada 20 s, 24 h têm ~4.300 pontos por linha. A tela não tem essa
+// resolução, então o desenho usa a média de cada minuto. Os resumos (mín, média, máx) usam todas as leituras.
+const CAMPOS_MEDIA_MINUTO = ['temp_interna', 'umid_interna', 'temp_externa', 'umid_externa', 'solo_percentual', 'vpd', 'agua_distancia_cm', 'agua_litros', 'agua_percentual'];
+function umaPorMinuto(linhas) {
+  if (linhas.length <= 2000) return linhas;
+  const saida = [];
+  let chave = null, grupo = [];
+  const fechar = () => {
+    if (!grupo.length) return;
+    const m = Object.assign({}, grupo[grupo.length - 1]);
+    CAMPOS_MEDIA_MINUTO.forEach(c => {
+      const v = grupo.map(l => l[c]).filter(x => x !== null && x !== undefined && x !== '').map(Number).filter(isFinite);
+      m[c] = v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+    });
+    saida.push(m);
+  };
+  linhas.forEach(l => {
+    const k = String(l.dispositivo_timestamp || l.criado_em || '').substring(0, 16);
+    if (k !== chave) { fechar(); chave = k; grupo = []; }
+    grupo.push(l);
+  });
+  fechar();
+  return saida;
 }
 
 function formatarRotuloTempo(linha, periodo) {
@@ -432,12 +503,95 @@ function formatarRotuloTempo(linha, periodo) {
   return periodo === '24h' ? (hora + ':' + min) : (dia + '/' + mes + ' ' + hora + 'h');
 }
 
+const seriesOcultas = {}; // canvasId -> { rótulo da série: true se escondida pela legenda }
 let graficoSemAnimacao = false; // redesenho de rotina (dado novo): sem animação, para não piscar
-function montarGrafico(canvasId, linhas, periodo, series, unidade, escala) {
+// Toque: ao soltar o dedo, o gráfico volta ao estado atual (sem tooltip nem cursor presos).
+// O navegador ainda dispara mousemove/click "sintéticos" logo depois do toque; eles são ignorados
+// por um instante para não reacender o destaque.
+const pluginSoltarToque = {
+  id: 'soltarToque',
+  afterInit(chart) {
+    const limpar = () => {
+      if (!chart.canvas || !chart.ctx) return; // gráfico já foi destruído
+      chart.setActiveElements([]);
+      if (chart.tooltip) { chart.tooltip.setActiveElements([], { x: 0, y: 0 }); chart.tooltip.opacity = 0; }
+      chart.update('none');
+      if (typeof h6Destacar === 'function' && Object.values(h6Graficos).indexOf(chart) !== -1) h6Destacar(null);
+    };
+    const soltar = () => {
+      chart.$ignorarMouseAte = Date.now() + 800;
+      limpar();
+      // Num toque muito rápido o destaque do "encostar" pode ser desenhado depois do "soltar": limpa de novo.
+      setTimeout(limpar, 60);
+      setTimeout(limpar, 250);
+    };
+    chart.$soltarToque = soltar;
+    chart.canvas.addEventListener('touchend', soltar, { passive: true });
+    chart.canvas.addEventListener('touchcancel', soltar, { passive: true });
+  },
+  beforeEvent(chart, args) {
+    const e = args.event, t = e.type;
+    // Toque na legenda (liga/desliga uma linha) sempre passa.
+    const lg = chart.legend;
+    if (lg && lg.options && lg.options.display && e.x >= lg.left && e.x <= lg.right && e.y >= lg.top && e.y <= lg.bottom) return;
+    if (chart.$ignorarMouseAte && Date.now() < chart.$ignorarMouseAte && (t === 'mousemove' || t === 'click' || t === 'mousedown' || t === 'mouseup')) return false;
+  },
+  beforeDestroy(chart) {
+    if (!chart.$soltarToque || !chart.canvas) return;
+    chart.canvas.removeEventListener('touchend', chart.$soltarToque);
+    chart.canvas.removeEventListener('touchcancel', chart.$soltarToque);
+  },
+};
+if (typeof Chart !== 'undefined') Chart.register(pluginSoltarToque);
+
+// Faixa ideal sombreada atrás das linhas (options.plugins.faixaIdeal = { faixa: [min, max], cor }).
+const pluginFaixaIdeal = {
+  id: 'faixaIdeal',
+  beforeDatasetsDraw(chart) {
+    const o = chart.options.plugins.faixaIdeal;
+    const { ctx, chartArea: a, scales: { y } } = chart;
+    if (!o || !o.faixa || !a || !y) return;
+    const [fMin, fMax] = o.faixa;
+    if (!isFinite(fMin) || !isFinite(fMax) || fMin >= fMax) return;
+    const yTopo = Math.max(a.top, y.getPixelForValue(fMax)), yBase = Math.min(a.bottom, y.getPixelForValue(fMin));
+    ctx.save();
+    if (yBase > yTopo) { ctx.fillStyle = hexComAlfa(o.cor, 0.07); ctx.fillRect(a.left, yTopo, a.right - a.left, yBase - yTopo); }
+    ctx.strokeStyle = hexComAlfa(o.cor, 0.4); ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+    [y.getPixelForValue(fMax), y.getPixelForValue(fMin)].forEach(py => {
+      if (py < a.top || py > a.bottom) return;
+      ctx.beginPath(); ctx.moveTo(a.left, Math.round(py) + 0.5); ctx.lineTo(a.right, Math.round(py) + 0.5); ctx.stroke();
+    });
+    ctx.restore();
+  },
+};
+// Resumo no cabeçalho do gráfico: agora, mínima, média, máxima e % do período dentro da faixa.
+function resumoSerie(linhas, campo) {
+  const v = linhas.map(l => l[campo]).filter(x => x !== null && x !== undefined && x !== '').map(Number).filter(isFinite);
+  if (!v.length) return null;
+  return { atual: v[v.length - 1], min: Math.min(...v), max: Math.max(...v), media: v.reduce((a, b) => a + b, 0) / v.length, valores: v };
+}
+function escreverStats(id, linhas, campo, fmt, faixa, extras) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const r = resumoSerie(linhas, campo);
+  if (!r) { el.innerHTML = ''; return; }
+  const item = (rot, val, classe) => '<span' + (classe ? ' class="' + classe + '"' : '') + '><small>' + rot + '</small><b>' + val + '</b></span>';
+  let html = item('Agora', fmt(r.atual), 'agora') + item('Mín', fmt(r.min)) + item('Média', fmt(r.media)) + item('Máx', fmt(r.max));
+  if (faixa && isFinite(faixa[0]) && isFinite(faixa[1]) && faixa[0] < faixa[1]) {
+    const pct = Math.round(100 * r.valores.filter(x => x >= faixa[0] && x <= faixa[1]).length / r.valores.length);
+    html += item('Na faixa', pct + '%', pct >= 80 ? 'ok' : 'atencao');
+  }
+  (extras || []).forEach(e => { html += item(e[0], e[1], e[2]); });
+  el.innerHTML = html;
+}
+
+function montarGrafico(canvasId, linhas, periodo, series, unidade, escala, faixaIdeal) {
+  linhas = umaPorMinuto(linhas);
   const labels = linhas.map(l => formatarRotuloTempo(l, periodo));
   const datasets = series.map(s => ({
     label: s.label, data: linhas.map(l => l[s.campo] === null ? null : Number(l[s.campo])),
     borderColor: s.cor, backgroundColor: s.cor, spanGaps: true, pointRadius: 0, borderWidth: 2, tension: 0.25,
+    hidden: !!(seriesOcultas[canvasId] && seriesOcultas[canvasId][s.label]),
   }));
   const config = {
     type: 'line',
@@ -446,12 +600,25 @@ function montarGrafico(canvasId, linhas, periodo, series, unidade, escala) {
       responsive: true, maintainAspectRatio: false,
       animation: graficoSemAnimacao ? false : undefined,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { labels: { color: '#8a938e', boxWidth: 12, font: { size: 11 } } } },
+      plugins: {
+        // Uma série só: o título do card já diz o que é.
+        legend: { display: series.length > 1, align: 'end',
+          // Tocar na legenda esconde/mostra a linha; a escolha vale também quando o gráfico é redesenhado (leitura nova, outro período).
+          onClick(e, item, legend) {
+            const ch = legend.chart, i = item.datasetIndex;
+            ch.setDatasetVisibility(i, !ch.isDatasetVisible(i));
+            (seriesOcultas[canvasId] = seriesOcultas[canvasId] || {})[ch.data.datasets[i].label] = !ch.isDatasetVisible(i);
+            ch.update();
+          },
+          labels: { color: '#8a938e', boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
+        faixaIdeal: faixaIdeal || null,
+      },
       scales: {
-        x: { ticks: { color: '#8a938e', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#242a27' } },
-        y: { ticks: { color: '#8a938e', font: { size: 10 } }, grid: { color: '#242a27' }, title: { display: true, text: unidade, color: '#8a938e' }, ...(escala || {}) },
+        x: { ticks: { color: '#8a938e', maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }, grid: { color: 'rgba(36,42,39,.55)' } },
+        y: { ticks: { color: '#8a938e', font: { size: 10 }, callback: v => String(Math.round(v * 10) / 10).replace('.', ',') + (unidade ? ' ' + unidade : '') }, grid: { color: '#242a27' }, ...(escala || {}) },
       },
     },
+    plugins: [pluginFaixaIdeal],
   };
   const ctx = document.getElementById(canvasId).getContext('2d');
   return new Chart(ctx, config);
@@ -509,26 +676,37 @@ function desenharGraficosInterno(linhas, periodo) {
   mostrarMensagemGrafico('graficoSolo', null);
   mostrarMensagemGrafico('graficoVpd', null);
 
+  const fxTemp = [Number(CONFIG.temp_alerta_min), Number(CONFIG.temp_alerta_max)];
+  const fxUmid = [Number(CONFIG.umid_alerta_min), Number(CONFIG.umid_alerta_max)];
+  const fxSolo = [Number(CONFIG.solo_ideal_min), Number(CONFIG.solo_ideal_max)];
+  const fGrau = v => brN(v, 1) + '\u00b0', fPct = v => Math.round(v) + '%';
+  const externo = (campo, fmt) => { const r = resumoSerie(linhas, campo); return r ? [['Externa', fmt(r.min) + '\u2013' + fmt(r.max), 'ext']] : []; };
+
   graficoTemperatura = montarGrafico('graficoTemperatura', linhas, periodo, [
-    { label: 'Interna (\u00b0C)', campo: 'temp_interna', cor: '#4CAF50' },
-    { label: 'Externa (\u00b0C)', campo: 'temp_externa', cor: '#e8c977' },
-  ], '\u00b0C');
+    { label: 'Interna', campo: 'temp_interna', cor: '#4CAF50' },
+    { label: 'Externa', campo: 'temp_externa', cor: '#e8c977' },
+  ], '\u00b0C', null, { faixa: fxTemp, cor: '#4CAF50' });
+  escreverStats('statsTemperatura', linhas, 'temp_interna', fGrau, fxTemp, externo('temp_externa', fGrau));
 
   graficoUmidade = montarGrafico('graficoUmidade', linhas, periodo, [
-    { label: 'Interna (%)', campo: 'umid_interna', cor: '#7fa9c2' },
-    { label: 'Externa (%)', campo: 'umid_externa', cor: '#b58bc9' },
-  ], '%');
+    { label: 'Interna', campo: 'umid_interna', cor: '#7fa9c2' },
+    { label: 'Externa', campo: 'umid_externa', cor: '#b58bc9' },
+  ], '%', null, { faixa: fxUmid, cor: '#7fa9c2' });
+  escreverStats('statsUmidade', linhas, 'umid_interna', fPct, fxUmid, externo('umid_externa', fPct));
 
   graficoSolo = montarGrafico('graficoSolo', linhas, periodo, [
-    { label: 'Solo (%)', campo: 'solo_percentual', cor: '#b98d5e' },
-  ], '%', { min: 0, max: 100 });
+    { label: 'Solo', campo: 'solo_percentual', cor: '#b98d5e' },
+  ], '%', { min: 0, max: 100 }, { faixa: fxSolo, cor: '#b98d5e' });
+  escreverStats('statsSolo', linhas, 'solo_percentual', fPct, fxSolo);
 
   if (linhas.some(l => l.agua_litros !== null && l.agua_litros !== undefined)) {
     mostrarMensagemGrafico('graficoAgua', null);
     graficoAgua = montarGrafico('graficoAgua', linhas, periodo, [
-      { label: 'Caixa d\'água (L)', campo: 'agua_litros', cor: '#6fb3e0' },
-    ], 'litros', { min: 0, suggestedMax: CAIXA_CAPACIDADE_L });
+      { label: 'Caixa d\'água', campo: 'agua_litros', cor: '#6fb3e0' },
+    ], 'L', { min: 0, suggestedMax: CAIXA_CAPACIDADE_L });
+    escreverStats('statsAgua', linhas, 'agua_litros', v => brN(v, 1) + ' L');
   } else {
+    escreverStats('statsAgua', [], 'agua_litros', String);
     mostrarMensagemGrafico('graficoAgua', 'sem leituras da caixa d\'água nesse período (sensor a partir do firmware 2.7.0)');
   }
 
@@ -539,10 +717,19 @@ function desenharGraficosInterno(linhas, periodo) {
     }
   });
   graficoVpd = montarGraficoVpd(linhas, periodo);
+  linhasDoGrafico = linhas;
+  atualizarStatsVpd();
+}
+// O resumo do VPD segue a faixa da fase ativa (que pode chegar depois das leituras).
+let linhasDoGrafico = [];
+function atualizarStatsVpd() {
+  const fxVpd = faixaVpd(ultimoModoAtual);
+  escreverStats('statsVpd', linhasDoGrafico, 'vpd', v => brN(v, 2), fxVpd,
+    [['Ideal \u00b7 ' + NOME_MODO[ultimoModoAtual === 'floracao' ? 'floracao' : 'vegetativo'].toLowerCase(), fmtKpa(fxVpd[0]) + '\u2013' + fmtKpa(fxVpd[1]) + ' kPa', 'ext']]);
 }
 
 function marcarPeriodo(periodo) {
-  document.querySelectorAll('.periodo-botao').forEach(btn => btn.classList.toggle('ativo', btn.dataset.periodo === periodo));
+  document.querySelectorAll('.periodo-botao[data-periodo]').forEach(btn => btn.classList.toggle('ativo', btn.dataset.periodo === periodo));
   const csv = document.getElementById('btnExportarCsv');
   if (csv) csv.href = 'exportar_csv.php?periodo=' + encodeURIComponent(periodo);
 }
@@ -551,6 +738,740 @@ function mudarPeriodo(periodo) {
   periodoAtual = periodo;
   marcarPeriodo(periodo);
   carregarGraficos(periodo).catch(e => { document.getElementById('statusLinha').textContent = 'erro ao carregar grafico: ' + e.message; });
+}
+
+/* ==================== Início: painel único ==================== */
+// A página Início junta o que é preciso para decidir: o que pede atenção agora, o ambiente interno
+// das últimas 6 h (com luz e equipamentos no mesmo eixo), solo e caixa com projeção, o resumo de 24 h
+// e a saúde dos dados. Tudo sai das leituras de 24 h já em memória (leituras24h) e do
+// inicio_resumo.php (períodos dos relés em 24 h e a caixa em 7 dias).
+const MIN_MS = 60 * 1000, HORA_MS = 60 * MIN_MS, DIA_MS = 24 * HORA_MS;
+// Janela do gráfico do Início: 6, 3 ou 1 hora (a escolha fica guardada neste navegador).
+const H6_HORAS_OPCOES = [6, 3, 1];
+let h6Horas = 6;
+try { const salvo = Number(localStorage.getItem('demetra_h6_horas')); if (H6_HORAS_OPCOES.includes(salvo)) h6Horas = salvo; } catch (e) { /* sem armazenamento: fica em 6 h */ }
+let H6_JANELA_MS = h6Horas * HORA_MS;
+function textoJanelaH6() { return h6Horas === 1 ? 'na última hora' : 'nas últimas ' + h6Horas + ' horas'; }
+function marcarJanelaH6() {
+  document.querySelectorAll('#h6Janela [data-h6-horas]').forEach(b => {
+    const ativo = Number(b.dataset.h6Horas) === h6Horas;
+    b.classList.toggle('ativo', ativo);
+    b.setAttribute('aria-pressed', String(ativo));
+  });
+}
+function mudarJanelaH6(horas) {
+  if (!H6_HORAS_OPCOES.includes(horas) || horas === h6Horas) return;
+  h6Horas = horas;
+  H6_JANELA_MS = horas * HORA_MS;
+  try { localStorage.setItem('demetra_h6_horas', String(horas)); } catch (e) { /* ignora */ }
+  h6Hover = null;
+  marcarJanelaH6();
+  renderizarInicio();
+}
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('#h6Janela [data-h6-horas]');
+  if (b) mudarJanelaH6(Number(b.dataset.h6Horas));
+});
+marcarJanelaH6();
+const H6_LACUNA_MS = 5 * MIN_MS;          // sem leitura por mais que isso: a linha é interrompida
+const DESVIO_PERSISTENTE_MS = 15 * MIN_MS; // só vira "ponto de atenção" o que dura isso ou mais
+const SENSOR_TRAVADO_MS = 3 * HORA_MS;     // mesmo valor exato por esse tempo: sensor pode ter travado
+
+let INI = { reles: [], relesAntes: {}, agua7d: [], carregado: false };
+async function carregarResumoInicio() {
+  let d;
+  try { d = await buscarJson('inicio_resumo.php'); }
+  catch (e) {
+    if (!INI.carregado) htmlSeMudou(document.getElementById('iniEquipLista'), '<p class="ini-vazio">Não foi possível carregar os relés (' + escapeHtml(e.message) + ').</p>');
+    throw e;
+  }
+  INI = { reles: d.reles || [], relesAntes: d.reles_antes || {}, agua7d: d.agua_7d || [], carregado: true };
+  renderizarInicio();
+}
+
+function numOuNulo(v) { return (v === null || v === undefined || v === '') ? null : Number(v); }
+function msTexto(ts) { return new Date(String(ts || '').replace(' ', 'T')).getTime(); }
+function fmtSinal(d, casas, unid) { return (d >= 0 ? '+' : '−') + brN(Math.abs(d), casas) + unid; }
+function htmlSeMudou(el, html) {
+  if (!el || el._html === html) return;
+  el.innerHTML = html;
+  el._html = html;
+  if (window.lucide) lucide.createIcons();
+}
+function listaComE(nomes) { return nomes.length <= 1 ? nomes.join('') : nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1]; }
+
+/* ---------- Relés e luz: períodos ligados ---------- */
+const EQUIPAMENTOS_INICIO = [
+  { rele: 'Umidificador', cor: '#6fb3e0' },
+  { rele: 'Aquecedor', cor: '#e8a05c' },
+  { rele: 'Saida de Ar', cor: '#b58bc9' },
+  { rele: 'Entrada de Ar', cor: '#9CC65A' },
+  { rele: 'Ventilador', cor: '#a7b0ab' },
+  { rele: 'Irrigacao', cor: '#b98d5e' },
+];
+function nomeRele(rele) { return RELE_ROTULO[rele] || rele; }
+function releConhecido(rele) { return INI.reles.some(e => e.alvo === rele) || !!INI.relesAntes[rele]; }
+// Trechos [início, fim] em que o relé esteve ligado dentro de [ini, fim].
+function periodosRele(rele, ini, fim) {
+  const evs = INI.reles.filter(e => e.alvo === rele).map(e => ({ ms: msTexto(e.quando), on: e.valor === 'ligado' }))
+    .filter(e => !isNaN(e.ms)).sort((a, b) => a.ms - b.ms);
+  const antes = INI.relesAntes[rele];
+  let on = !!antes && antes.valor === 'ligado';
+  let desde = ini;
+  const out = [];
+  evs.forEach(e => {
+    if (e.ms <= ini) { on = e.on; return; }
+    if (e.ms > fim) return;
+    if (e.on && !on) { on = true; desde = e.ms; }               // registros repetidos (boot) não abrem outro trecho
+    else if (!e.on && on) { out.push([desde, e.ms]); on = false; }
+  });
+  if (on) out.push([desde, fim]);
+  return out;
+}
+function temReleLuz() { return INI.carregado && releConhecido('Luz'); }
+// Luz acesa: pelo relé da luz quando há registros; senão, pelo fotoperíodo da fase atual.
+function periodosLuz(ini, fim) {
+  if (temReleLuz()) return periodosRele('Luz', ini, fim);
+  const j = janelaDoModo(ultimoModoAtual);
+  const out = [];
+  let aberto = null;
+  for (let t = ini; t <= fim; t += MIN_MS) {
+    const on = luzLigadaNaJanela(j, horaFracDeMs(t));
+    if (on && aberto === null) aberto = t;
+    if (!on && aberto !== null) { out.push([aberto, t]); aberto = null; }
+  }
+  if (aberto !== null) out.push([aberto, fim]);
+  return out;
+}
+function recortar(periodos, ini, fim) {
+  return periodos.map(p => [Math.max(p[0], ini), Math.min(p[1], fim)]).filter(p => p[1] > p[0]);
+}
+function complemento(periodos, ini, fim) {
+  const out = [];
+  let t = ini;
+  recortar(periodos, ini, fim).sort((a, b) => a[0] - b[0]).forEach(p => { if (p[0] > t) out.push([t, p[0]]); t = Math.max(t, p[1]); });
+  if (t < fim) out.push([t, fim]);
+  return out;
+}
+function dentroDe(periodos, ms) { return periodos.some(p => ms >= p[0] && ms < p[1]); }
+function somaPeriodos(periodos) { return periodos.reduce((s, p) => s + (p[1] - p[0]), 0); }
+
+/* ---------- Grandezas internas ---------- */
+const H6_SERIES = [
+  { chave: 'temp', prefixo: 'h6Temp', cor: '#4CAF50', nome: 'Temperatura', nomeMin: 'temperatura',
+    valor: l => numOuNulo(l.temp_interna),
+    fmt: v => brN(v, 1) + '°C', fmtTend: d => fmtSinal(d, 1, ' °C/h'), limiarTend: 0.2,
+    faixa: () => [Number(CONFIG.temp_alerta_min), Number(CONFIG.temp_alerta_max)],
+    textoFaixa: (a, b) => 'Faixa: ' + brFx(a) + '–' + brFx(b) + ' °C',
+    vsFora: l => { const i = numOuNulo(l.temp_interna), e = numOuNulo(l.temp_externa); return (i === null || e === null) ? 'sem leitura externa' : fmtSinal(i - e, 1, ' °C') + ' vs fora'; },
+    acao: { acima: ['Ventilar', 'Saida de Ar'], abaixo: ['Aquecer', 'Aquecedor'] } },
+  { chave: 'umid', prefixo: 'h6Umid', cor: '#7fa9c2', nome: 'Umidade', nomeMin: 'umidade',
+    valor: l => numOuNulo(l.umid_interna),
+    fmt: v => Math.round(v) + '%', fmtTend: d => fmtSinal(d, 0, '%/h'), limiarTend: 1,
+    faixa: () => [Number(CONFIG.umid_alerta_min), Number(CONFIG.umid_alerta_max)],
+    textoFaixa: (a, b) => 'Faixa: ' + a + '–' + b + '%',
+    vsFora: l => { const i = numOuNulo(l.umid_interna), e = numOuNulo(l.umid_externa); return (i === null || e === null) ? 'sem leitura externa' : fmtSinal(Math.round(i - e), 0, '%') + ' vs fora'; },
+    acao: { acima: ['Aumentar exaustão', 'Saida de Ar'], abaixo: ['Umidificar', 'Umidificador'] } },
+  { chave: 'vpd', prefixo: 'h6Vpd', cor: '#eef1ee', nome: 'VPD', nomeMin: 'VPD',
+    valor: l => {
+      if (l.vpd !== null && l.vpd !== undefined && l.vpd !== '') return Number(l.vpd);
+      const t = numOuNulo(l.temp_interna), u = numOuNulo(l.umid_interna);
+      return (t === null || u === null) ? null : calcularVPD(t, u);
+    },
+    fmt: v => brN(v, 2) + ' kPa', fmtTend: d => fmtSinal(d, 2, '/h'), limiarTend: 0.03,
+    faixa: () => faixaVpd(ultimoModoAtual),
+    textoFaixa: (a, b) => 'Ideal na ' + NOME_MODO[ultimoModoAtual === 'floracao' ? 'floracao' : 'vegetativo'].toLowerCase() + ': ' + fmtKpa(a) + '–' + fmtKpa(b) + ' kPa',
+    vsFora: () => { const [a, b] = faixaVpd(ultimoModoAtual); return 'ideal ' + fmtKpa(a) + '–' + fmtKpa(b) + ' kPa'; },
+    acao: { acima: ['Aumentar umidificação', 'Umidificador'], abaixo: ['Reduzir umidade', 'Saida de Ar'] } },
+];
+function serieDe(linhas, valor) {
+  return linhas.map(l => ({ ms: msLeitura(l), v: valor(l) })).filter(p => !isNaN(p.ms) && p.v !== null && isFinite(p.v));
+}
+function faixaValida(f) { return isFinite(f[0]) && isFinite(f[1]) && f[0] < f[1]; }
+function foraDaFaixa(v, f) { return faixaValida(f) && (v < f[0] || v > f[1]); }
+// Tempo fora da faixa desde "desde": cada leitura vale até a próxima (no máximo 5 min).
+function tempoFora(pts, f, desde) {
+  let t = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].ms < desde || !foraDaFaixa(pts[i].v, f)) continue;
+    const prox = i + 1 < pts.length ? pts[i + 1].ms : pts[i].ms + MIN_MS;
+    t += Math.min(prox - pts[i].ms, H6_LACUNA_MS);
+  }
+  return t;
+}
+// Situação atual: de que lado da faixa está e há quanto tempo sem mudar de lado.
+function situacaoAtual(pts, f) {
+  if (!pts.length || !faixaValida(f)) return { lado: null, ms: 0, desde: null };
+  const lado = v => v > f[1] ? 'acima' : (v < f[0] ? 'abaixo' : null);
+  const ult = pts[pts.length - 1], l = lado(ult.v);
+  let i = pts.length - 1;
+  while (i > 0 && lado(pts[i - 1].v) === l) i--;
+  return { lado: l, ms: ult.ms - pts[i].ms, desde: pts[i].ms };
+}
+function mediaEntre(pts, a, b) {
+  let s = 0, n = 0;
+  pts.forEach(p => { if (p.ms >= a && p.ms <= b) { s += p.v; n++; } });
+  return n ? s / n : null;
+}
+// Variação por hora: média dos últimos 10 min contra a média de 50 a 70 min atrás.
+function tendenciaPorHora(pts) {
+  if (pts.length < 2) return null;
+  const fim = pts[pts.length - 1].ms;
+  const agora = mediaEntre(pts, fim - 10 * MIN_MS, fim), antes = mediaEntre(pts, fim - 70 * MIN_MS, fim - 50 * MIN_MS);
+  return (agora === null || antes === null) ? null : (agora - antes) * 60 / 55;
+}
+
+/* ---------- Gráficos das últimas 6 h ---------- */
+let h6Graficos = {};   // chave -> Chart
+let h6Xs = [];         // instantes (ms) das leituras da janela, em ordem
+let h6Hover = null;    // índice destacado (cursor/toque) ou null
+let h6Resumo = {};     // chave -> { tend, ladoAtual }
+let h6Luz = [];        // trechos de luz acesa na janela (para o texto do cursor)
+
+// Luz apagada e faixa ideal no fundo; cursor vertical sincronizado nas três linhas.
+const pluginH6 = {
+  id: 'h6',
+  beforeDatasetsDraw(chart) {
+    const o = chart.options.plugins.h6 || {};
+    const { ctx, chartArea: a, scales: { x, y } } = chart;
+    if (!a || !x || !y) return;
+    ctx.save();
+    (o.noite || []).forEach(p => {
+      const x0 = Math.max(a.left, x.getPixelForValue(p[0])), x1 = Math.min(a.right, x.getPixelForValue(p[1]));
+      if (x1 <= x0) return;
+      ctx.fillStyle = 'rgba(8, 10, 10, .55)';
+      ctx.fillRect(x0, a.top, x1 - x0, a.bottom - a.top);
+    });
+    (o.trocasLuz || []).forEach(ms => {
+      const px = x.getPixelForValue(ms);
+      if (px <= a.left + 1 || px >= a.right - 1) return;
+      ctx.strokeStyle = 'rgba(232, 201, 119, .45)';
+      ctx.setLineDash([2, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Math.round(px) + 0.5, a.top); ctx.lineTo(Math.round(px) + 0.5, a.bottom); ctx.stroke();
+    });
+    if (o.faixa && faixaValida(o.faixa)) {
+      const [fMin, fMax] = o.faixa;
+      const yTopo = Math.max(a.top, y.getPixelForValue(fMax));
+      const yBase = Math.min(a.bottom, y.getPixelForValue(fMin));
+      if (yBase > yTopo) {
+        ctx.setLineDash([]);
+        ctx.fillStyle = hexComAlfa(o.cor, 0.07);
+        ctx.fillRect(a.left, yTopo, a.right - a.left, yBase - yTopo);
+        ctx.strokeStyle = hexComAlfa(o.cor, 0.3);
+        ctx.setLineDash([3, 4]);
+        [yTopo, yBase].forEach(py => {
+          if (py <= a.top + 0.5 || py >= a.bottom - 0.5) return;
+          ctx.beginPath(); ctx.moveTo(a.left, Math.round(py) + 0.5); ctx.lineTo(a.right, Math.round(py) + 0.5); ctx.stroke();
+        });
+      }
+    }
+    ctx.restore();
+  },
+  afterDatasetsDraw(chart) {
+    if (h6Hover === null || h6Xs[h6Hover] === undefined) return;
+    const o = chart.options.plugins.h6 || {};
+    const { ctx, chartArea: a, scales: { x, y } } = chart;
+    const px = x.getPixelForValue(h6Xs[h6Hover]);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(238, 241, 238, .28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(Math.round(px) + 0.5, a.top); ctx.lineTo(Math.round(px) + 0.5, a.bottom); ctx.stroke();
+    const ponto = chart.data.datasets[0].data[h6Hover];
+    if (ponto && ponto.y !== null) {
+      ctx.fillStyle = o.cor;
+      ctx.strokeStyle = '#1a1e1d';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, y.getPixelForValue(ponto.y), 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  },
+  afterEvent(chart, args) {
+    const e = args.event;
+    if (e.type === 'mouseout') { h6Destacar(null); return; }
+    if (e.type !== 'mousemove' && e.type !== 'click' && e.type !== 'mousedown') return; // toque chega como mousedown/mousemove
+    if (!h6Xs.length) return;
+    const alvo = chart.scales.x.getValueForPixel(e.x);
+    let lo = 0, hi = h6Xs.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (h6Xs[m] < alvo) lo = m; else hi = m; }
+    h6Destacar(Math.abs(h6Xs[lo] - alvo) <= Math.abs(h6Xs[hi] - alvo) ? lo : hi);
+  },
+};
+
+function h6Destacar(indice) {
+  if (indice === h6Hover) return;
+  h6Hover = indice;
+  Object.values(h6Graficos).forEach(g => g.draw());
+  h6EscreverInfo();
+  h6EscreverEquip();
+}
+
+// Linhas dos equipamentos: estado agora (ou no instante do cursor), há quanto tempo e quem acionou.
+let h6Eq = [];                 // [{ eq, p: períodos ligados na janela, p24: nas últimas 24 h }]
+let h6Inicio = 0, h6Fim = 0;   // limites da janela desenhada
+function h6EscreverEquip() {
+  const comCursor = h6Hover !== null && h6Xs[h6Hover] !== undefined;
+  const t = comCursor ? h6Xs[h6Hover] : h6Fim;
+  h6Eq.forEach(({ eq, p24 }) => {
+    const linha = document.querySelector('#h6Equip .h6-linha-eq[data-eq="' + eq.rele + '"]');
+    if (!linha) return;
+    // período ligado que contém o instante (o último vale até "agora")
+    const per = p24.find(x => t >= x[0] && (t < x[1] || (x[1] >= h6Fim && t <= h6Fim)));
+    const ligado = !!per;
+    const desde = ligado ? per[0] : Math.max(0, ...p24.filter(x => x[1] <= t).map(x => x[1]));
+    const evs = INI.reles.filter(e => e.alvo === eq.rele && msTexto(e.quando) <= t);
+    const origem = evs.length ? origemCurta(evs[evs.length - 1].origem) : '';
+    const estadoEl = linha.querySelector('.h6-eq-estado'), haEl = linha.querySelector('.h6-eq-ha'), subEl = linha.querySelector('.h6-eq-sub');
+    estadoEl.textContent = ligado ? 'Ligado' : 'Desligado';
+    estadoEl.classList.toggle('on', ligado);
+    if (comCursor) {
+      haEl.textContent = '';
+      subEl.textContent = (desde ? 'desde ' + hhmmDeMs(desde) : 'às ' + hhmmDeMs(t)) + (origem ? ' · ' + origem.toLowerCase() : '');
+    } else {
+      haEl.textContent = desde ? 'há ' + duracaoCompacta(t - desde) : '';
+      subEl.textContent = origem;
+    }
+    const cursor = linha.querySelector('.h6-eq-cursor');
+    cursor.hidden = !comCursor;
+    if (comCursor) cursor.style.left = ((t - h6Inicio) / H6_JANELA_MS * 100).toFixed(2) + '%';
+  });
+}
+// Mouse ou dedo sobre a faixa de um equipamento: mesmo cursor sincronizado dos gráficos.
+function h6CursorPelaFaixa(faixa, clientX) {
+  if (!h6Xs.length) return;
+  const r = faixa.getBoundingClientRect();
+  const alvo = h6Inicio + Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * H6_JANELA_MS;
+  let lo = 0, hi = h6Xs.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (h6Xs[m] < alvo) lo = m; else hi = m; }
+  h6Destacar(Math.abs(h6Xs[lo] - alvo) <= Math.abs(h6Xs[hi] - alvo) ? lo : hi);
+}
+let h6EqIgnorarMouseAte = 0;
+document.addEventListener('mousemove', ev => {
+  const faixa = ev.target.closest && ev.target.closest('.h6-eq-faixa');
+  if (faixa && Date.now() >= h6EqIgnorarMouseAte) h6CursorPelaFaixa(faixa, ev.clientX);
+});
+document.addEventListener('mouseout', ev => {
+  const faixa = ev.target.closest && ev.target.closest('.h6-eq-faixa');
+  if (faixa && !(ev.relatedTarget && faixa.contains(ev.relatedTarget))) h6Destacar(null);
+});
+['touchstart', 'touchmove'].forEach(tipo => document.addEventListener(tipo, ev => {
+  const faixa = ev.target.closest && ev.target.closest('.h6-eq-faixa');
+  if (faixa && ev.touches[0]) h6CursorPelaFaixa(faixa, ev.touches[0].clientX);
+}, { passive: true }));
+['touchend', 'touchcancel'].forEach(tipo => document.addEventListener(tipo, ev => {
+  if (ev.target.closest && ev.target.closest('.h6-eq-faixa')) { h6EqIgnorarMouseAte = Date.now() + 800; h6Destacar(null); }
+}, { passive: true }));
+
+// Valor, tendência e comparação de cada linha. Sem cursor: a leitura mais nova (inclusive a ao vivo).
+function h6EscreverInfo() {
+  H6_SERIES.forEach(s => {
+    const valorEl = document.getElementById(s.prefixo + 'Valor');
+    const tendEl = document.getElementById(s.prefixo + 'Tend');
+    const subEl = document.getElementById(s.prefixo + 'Sub');
+    if (!valorEl) return;
+    const f = s.faixa();
+    const g = h6Graficos[s.chave];
+    if (h6Hover !== null && g) {
+      const p = g.data.datasets[0].data[h6Hover];
+      const v = p ? p.y : null;
+      tirarEsqueleto(s.prefixo + 'Valor');
+      valorEl.textContent = v !== null ? s.fmt(v) : '--';
+      valorEl.classList.toggle('fora', v !== null && foraDaFaixa(v, f));
+      tendEl.textContent = '';
+      subEl.textContent = 'às ' + hhmmDeMs(h6Xs[h6Hover]) + (h6Luz.length || INI.carregado ? (dentroDe(h6Luz, h6Xs[h6Hover]) ? ' · luz acesa' : ' · luz apagada') : '');
+      return;
+    }
+    const l = ultimaLeitura;
+    const v = l ? s.valor(l) : null;
+    if (v === null || !isFinite(v)) { if (leituras24hCarregadas) { tirarEsqueleto(s.prefixo + 'Valor'); valorEl.textContent = '--'; } tendEl.textContent = ''; subEl.textContent = ''; return; }
+    tirarEsqueleto(s.prefixo + 'Valor');
+    valorEl.textContent = s.fmt(v);
+    const lado = v > f[1] ? 'acima' : (v < f[0] ? 'abaixo' : null);
+    valorEl.classList.toggle('fora', !!lado && faixaValida(f));
+    const r = h6Resumo[s.chave] || {};
+    const d = r.tend;
+    if (d === null || d === undefined) { tendEl.textContent = ''; tendEl.className = 'h6-tend'; }
+    else if (Math.abs(d) < s.limiarTend) { tendEl.textContent = '→ estável'; tendEl.className = 'h6-tend'; }
+    else {
+      tendEl.textContent = (d > 0 ? '↑ ' : '↓ ') + s.fmtTend(d);
+      // piorando: subindo acima da faixa ou descendo abaixo dela
+      tendEl.className = 'h6-tend' + ((lado === 'acima' && d > 0) || (lado === 'abaixo' && d < 0) ? ' sobe-ruim' : '');
+    }
+    subEl.textContent = s.vsFora(l);
+  });
+}
+
+function h6CriarGrafico(s) {
+  return new Chart(document.getElementById(s.prefixo + 'Grafico').getContext('2d'), {
+    type: 'line',
+    data: { datasets: [{ data: [], borderColor: s.cor, borderWidth: 1.75, pointRadius: 0, pointHoverRadius: 0, tension: 0.3, spanGaps: H6_LACUNA_MS, fill: false }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false, parsing: false, normalized: true,
+      layout: { padding: { top: 4, bottom: 4 } },
+      events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+      plugins: { legend: { display: false }, tooltip: { enabled: false }, h6: { cor: s.cor, faixa: null, noite: [], trocasLuz: [] } },
+      scales: { x: { type: 'linear', display: false }, y: { display: false } },
+    },
+    plugins: [pluginH6],
+  });
+}
+
+function renderizarHist6(ctx) {
+  const vazio = !ctx || !ctx.linhas6.length;
+  document.getElementById('hist6Linhas').hidden = vazio;
+  document.getElementById('hist6Vazio').hidden = !vazio || !leituras24hCarregadas;
+  if (vazio) return;
+  const { fim, linhas6 } = ctx;
+  const inicio = fim - H6_JANELA_MS;
+  h6Luz = recortar(ctx.luz24, inicio, fim);
+  const noite = complemento(h6Luz, inicio, fim);
+  const trocasLuz = [];
+  h6Luz.forEach(p => { if (p[0] > inicio) trocasLuz.push(p[0]); if (p[1] < fim) trocasLuz.push(p[1]); });
+
+  if (typeof Chart !== 'undefined') {
+    h6Xs = linhas6.map(msLeitura);
+    if (h6Hover !== null && h6Hover >= h6Xs.length) h6Hover = null;
+    H6_SERIES.forEach(s => {
+      const pontos = linhas6.map((l, i) => ({ x: h6Xs[i], y: s.valor(l) }));
+      const validos = pontos.map(p => p.y).filter(v => v !== null && isFinite(v));
+      const f = s.faixa();
+      let g = h6Graficos[s.chave];
+      if (!g) g = h6Graficos[s.chave] = h6CriarGrafico(s);
+      g.data.datasets[0].data = pontos;
+      Object.assign(g.options.plugins.h6, { faixa: faixaValida(f) ? f : null, noite, trocasLuz });
+      g.options.scales.x.min = inicio;
+      g.options.scales.x.max = fim;
+      // Escala vertical: os dados com uma folga mínima (linha reta não vira ruído).
+      if (validos.length) {
+        const lo = Math.min(...validos), hi = Math.max(...validos);
+        const folgaMin = s.chave === 'vpd' ? 0.15 : (s.chave === 'temp' ? 1.5 : 4);
+        const meio = (lo + hi) / 2, meia = Math.max((hi - lo) / 2 * 1.15, folgaMin / 2);
+        g.options.scales.y.min = meio - meia;
+        g.options.scales.y.max = meio + meia;
+      }
+      g.update('none');
+    });
+  }
+
+  // Fora da faixa hoje (desde a meia-noite) e tendência
+  const meiaNoite = inicioDoDia(fim);
+  H6_SERIES.forEach(s => {
+    const st = ctx.series[s.chave];
+    h6Resumo[s.chave] = { tend: st.tend };
+    const el = document.getElementById(s.prefixo + 'Fora');
+    const t = tempoFora(st.pts, st.faixa, meiaNoite);
+    el.textContent = t < MIN_MS ? '0 min' : duracaoCompacta(t);
+    el.classList.toggle('fora', t >= DESVIO_PERSISTENTE_MS);
+  });
+
+  // Equipamentos: uma linha por equipamento, no mesmo formato e no mesmo eixo de tempo das leituras
+  h6Inicio = inicio; h6Fim = fim;
+  const eqEl = document.getElementById('h6Equip');
+  if (!INI.carregado) { h6Eq = []; htmlSeMudou(eqEl, ''); }
+  else {
+    h6Eq = EQUIPAMENTOS_INICIO.map(eq => ({ eq, p: recortar(periodosRele(eq.rele, inicio, fim), inicio, fim), p24: periodosRele(eq.rele, fim - DIA_MS, fim) })).filter(x => x.p.length);
+    const pct = ms => ((ms - inicio) / H6_JANELA_MS * 100).toFixed(2);
+    const sombra = noite.map(n => '<u style="left:' + pct(n[0]) + '%;width:' + ((n[1] - n[0]) / H6_JANELA_MS * 100).toFixed(2) + '%;"></u>').join('') +
+      trocasLuz.map(t => '<s style="left:' + pct(t) + '%;"></s>').join('');
+    const rotuloJanela = 'ligado em ' + h6Horas + ' h';
+    const html = h6Eq.length ? h6Eq.map(({ eq, p }) =>
+      '<div class="h6-linha h6-linha-eq" data-eq="' + escapeHtml(eq.rele) + '">' +
+        '<div class="h6-info"><span class="h6-rotulo"><i style="background:' + eq.cor + ';"></i>' + escapeHtml(nomeRele(eq.rele)) + '</span>' +
+          '<div class="h6-valor-linha"><strong class="h6-valor h6-eq-estado"></strong><span class="h6-tend h6-eq-ha"></span></div>' +
+          '<small class="h6-sub h6-eq-sub"></small></div>' +
+        '<div class="h6-grafico h6-eq-faixa" role="img" aria-label="' + escapeHtml(nomeRele(eq.rele)) + ': ligado ' + escapeHtml(duracaoCompacta(somaPeriodos(p))) + ' ' + textoJanelaH6() + '">' + sombra +
+          p.map(x => '<i style="left:' + pct(x[0]) + '%;width:' + ((x[1] - x[0]) / H6_JANELA_MS * 100).toFixed(2) + '%;background:' + eq.cor + ';"></i>').join('') +
+          '<b class="h6-eq-cursor" hidden></b></div>' +
+        '<div class="h6-fora"><span>' + rotuloJanela + '</span><strong class="h6-eq-total">' + escapeHtml(duracaoCompacta(somaPeriodos(p))) + '</strong></div>' +
+      '</div>').join('')
+      : '<span class="h6-eq-vazio">Nenhum equipamento ligado ' + textoJanelaH6() + '.</span>';
+    htmlSeMudou(eqEl, html);
+  }
+  h6EscreverEquip();
+
+  const eixo = document.getElementById('hist6Eixo').children;
+  [3, 2, 1, 0].forEach((terco, i) => { eixo[i].textContent = hhmmDeMs(fim - terco * H6_JANELA_MS / 3); });
+}
+
+/* ---------- Solo: última irrigação, ritmo e projeção ---------- */
+function renderizarSoloExtra(ctx) {
+  const { fim } = ctx;
+  const pts = serieDe(leituras24h, l => numOuNulo(l.solo_percentual));
+  const ultEl = document.getElementById('soloUltIrrig'), taxaEl = document.getElementById('soloTaxa');
+  const prevEl = document.getElementById('soloPrevisao'), prevRot = document.getElementById('soloPrevisaoRotulo');
+  prevEl.classList.remove('atencao');
+  prevRot.textContent = 'Chega ao mínimo';
+  // Última irrigação: pelo relé; sem registro, por um salto de 5 pontos ou mais na umidade do solo.
+  let ultIrrig = null;
+  if (INI.carregado) {
+    const p = periodosRele('Irrigacao', fim - DIA_MS, fim);
+    if (p.length) ultIrrig = p[p.length - 1][0];
+  }
+  if (ultIrrig === null) {
+    for (let i = 10; i < pts.length; i++) {
+      const minAntes = Math.min(...pts.slice(i - 10, i).map(p => p.v));
+      if (pts[i].v - minAntes >= 5) ultIrrig = pts[i].ms;
+    }
+  }
+  ultEl.textContent = ultIrrig === null ? 'sem registro em 24h' : hhmmDeMs(ultIrrig) + ' · há ' + duracaoCompacta(fim - ultIrrig);
+
+  // Ritmo: regressão linear nas últimas 2 h (ou desde 20 min depois da irrigação).
+  const desde = Math.max(fim - 2 * HORA_MS, ultIrrig === null ? 0 : ultIrrig + 20 * MIN_MS);
+  const janela = pts.filter(p => p.ms >= desde);
+  let taxa = null;
+  if (janela.length >= 20 && janela[janela.length - 1].ms - janela[0].ms >= 40 * MIN_MS) {
+    const n = janela.length, mx = janela.reduce((s, p) => s + p.ms, 0) / n, my = janela.reduce((s, p) => s + p.v, 0) / n;
+    let num = 0, den = 0;
+    janela.forEach(p => { num += (p.ms - mx) * (p.v - my); den += (p.ms - mx) * (p.ms - mx); });
+    if (den > 0) taxa = num / den * HORA_MS;
+  }
+  const atual = soloSemLeitura || !pts.length ? null : pts[pts.length - 1].v;
+  const min = Number(CONFIG.solo_ideal_min);
+  if (soloSemLeitura) { taxaEl.textContent = '--'; prevEl.textContent = 'sensor sem leitura'; return { horas: null, atual: null }; }
+  taxaEl.textContent = taxa === null ? 'medindo…' : (Math.abs(taxa) < 0.2 ? 'estável' : (taxa < 0 ? 'secando ' : 'subindo ') + brN(Math.abs(taxa), 1) + '%/h');
+  let horas = null;
+  if (atual === null) prevEl.textContent = '--';
+  else if (atual < min) { prevRot.textContent = 'Abaixo do mínimo'; prevEl.textContent = 'irrigar'; prevEl.classList.add('atencao'); horas = 0; }
+  else if (taxa !== null && taxa <= -0.2) {
+    horas = (atual - min) / -taxa;
+    prevEl.textContent = horas > 48 ? 'mais de 2 dias' : '~' + (horas < 1 ? Math.max(1, Math.round(horas * 60)) + ' min' : brN(horas, horas < 10 ? 1 : 0) + ' h') + ' · ' + hhmmDeMs(fim + horas * HORA_MS);
+    prevEl.classList.toggle('atencao', horas < 3);
+  } else prevEl.textContent = 'sem queda agora';
+  return { horas, atual, min };
+}
+
+/* ---------- Caixa d'água: consumo, autonomia e quando encher ---------- */
+function consumoCaixaLitrosDia() {
+  let pts = INI.agua7d.map(r => ({ ms: msTexto(r.hora), v: numOuNulo(r.litros) })).filter(p => !isNaN(p.ms) && p.v !== null);
+  if (pts.length < 2) {
+    // Sem os 7 dias ainda: médias por hora das leituras de 24 h.
+    const porHora = {};
+    leiturasComAgua().forEach(l => { const ms = msLeitura(l); if (isNaN(ms)) return; const h = Math.floor(ms / HORA_MS); (porHora[h] = porHora[h] || []).push(Number(l.agua_litros)); });
+    pts = Object.keys(porHora).sort().map(h => ({ ms: Number(h) * HORA_MS, v: porHora[h].reduce((s, v) => s + v, 0) / porHora[h].length }));
+  }
+  let gasto = 0, tempo = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dt = pts[i].ms - pts[i - 1].ms;
+    if (dt <= 0 || dt > 3 * HORA_MS) continue;     // buraco nos dados
+    tempo += dt;
+    const dv = pts[i].v - pts[i - 1].v;
+    if (dv < -0.25) gasto -= dv;                    // subidas são reabastecimento; variações pequenas, ruído do sensor
+  }
+  if (tempo < 12 * HORA_MS) return null;
+  return gasto / (tempo / DIA_MS);
+}
+function renderizarCaixaExtra(ctx) {
+  const consumoEl = document.getElementById('aguaConsumo'), autEl = document.getElementById('aguaAutonomia'), encherEl = document.getElementById('aguaEncher');
+  autEl.classList.remove('atencao'); encherEl.classList.remove('atencao');
+  const l = ultimaLeitura;
+  const litros = l && l.agua_litros !== null && l.agua_litros !== undefined ? Number(l.agua_litros) : null;
+  if (aguaSemLeitura || litros === null || isNaN(litros)) { consumoEl.textContent = '--'; autEl.textContent = '--'; encherEl.textContent = '--'; return { dias: null, litros: null }; }
+  const consumo = consumoCaixaLitrosDia();
+  const alertaL = CAIXA_CAPACIDADE_L * (Number(CONFIG.agua_alerta_min) || 20) / 100;
+  if (consumo === null) { consumoEl.textContent = 'medindo…'; autEl.textContent = '--'; encherEl.textContent = '--'; return { dias: null, litros }; }
+  consumoEl.textContent = brN(consumo, 1) + ' L/dia';
+  if (consumo < 0.2) { autEl.textContent = 'sem consumo'; encherEl.textContent = '--'; return { dias: null, litros, consumo }; }
+  const dias = litros / consumo;
+  autEl.textContent = dias < 1 ? '~' + Math.max(1, Math.round(dias * 24)) + ' h' : '~' + brN(dias, dias < 10 ? 1 : 0) + (dias < 2 ? ' dia' : ' dias');
+  autEl.classList.toggle('atencao', dias < 3);
+  const diasAviso = (litros - alertaL) / consumo;
+  if (diasAviso <= 0) { encherEl.textContent = 'agora'; encherEl.classList.add('atencao'); }
+  else {
+    const d = new Date(ctx.fim + diasAviso * DIA_MS);
+    encherEl.textContent = diasAviso < 1 ? 'hoje, ' + hhmmDeMs(d.getTime()) : d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '');
+    encherEl.classList.toggle('atencao', diasAviso < 2);
+  }
+  return { dias, litros, consumo, diasAviso };
+}
+
+/* ---------- Resumo 24 h: luz acesa × apagada e DIF ---------- */
+function renderizarResumoLuz(ctx) {
+  const { fim, luz24 } = ctx;
+  const ini = fim - DIA_MS;
+  const linhas = leituras24h.filter(l => { const t = msLeitura(l); return !isNaN(t) && t >= ini; });
+  const grupos = { acesa: [], apagada: [] };
+  linhas.forEach(l => grupos[dentroDe(luz24, msLeitura(l)) ? 'acesa' : 'apagada'].push(l));
+  const media = (ls, f) => { const v = ls.map(f).filter(x => x !== null && isFinite(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+  const fT = l => numOuNulo(l.temp_interna), fU = l => numOuNulo(l.umid_interna), fV = H6_SERIES[2].valor;
+  const cel = (v, fmt) => '<td>' + (v === null ? '—' : fmt(v)) + '</td>';
+  const tA = media(grupos.acesa, fT), tP = media(grupos.apagada, fT);
+  const html =
+    '<tr><th scope="row">Temperatura</th>' + cel(tA, v => brN(v, 1) + ' °C') + cel(tP, v => brN(v, 1) + ' °C') + '</tr>' +
+    '<tr><th scope="row">Umidade</th>' + cel(media(grupos.acesa, fU), v => Math.round(v) + '%') + cel(media(grupos.apagada, fU), v => Math.round(v) + '%') + '</tr>' +
+    '<tr><th scope="row">VPD</th>' + cel(media(grupos.acesa, fV), v => brN(v, 2) + ' kPa') + cel(media(grupos.apagada, fV), v => brN(v, 2) + ' kPa') + '</tr>';
+  htmlSeMudou(document.getElementById('iniLuzTabela'), linhas.length ? html : '<tr><td colspan="3" class="ini-vazio">Sem leituras nas últimas 24 horas.</td></tr>');
+  document.getElementById('iniDif').textContent = (tA === null || tP === null) ? '--' : fmtSinal(tA - tP, 1, ' °C');
+  const horasLuz = somaPeriodos(recortar(luz24, ini, fim)) / HORA_MS;
+  document.getElementById('iniLuzFonte').textContent = 'Luz acesa por ' + brN(horasLuz, horasLuz % 1 ? 1 : 0) + ' h nas últimas 24 h · ' +
+    (temReleLuz() ? 'períodos pelo relé da luz.' : 'períodos pelo fotoperíodo da fase atual (sem registro do relé da luz).');
+}
+
+/* ---------- Equipamentos: tempo ligado em 24 h ---------- */
+function renderizarEquipamentos(ctx) {
+  const el = document.getElementById('iniEquipLista');
+  if (!INI.carregado) return;
+  const { fim } = ctx;
+  const ini = fim - DIA_MS;
+  const sT = ctx.series.temp, sV = ctx.series.vpd;
+  const fracFora = (st, lado) => {
+    if (!st.pts.length || !faixaValida(st.faixa)) return 0;
+    const pts = st.pts.filter(p => p.ms >= ini);
+    return pts.length ? pts.filter(p => lado === 'acima' ? p.v > st.faixa[1] : p.v < st.faixa[0]).length / pts.length : 0;
+  };
+  const itens = EQUIPAMENTOS_INICIO.filter(eq => releConhecido(eq.rele)).map(eq => {
+    const p = periodosRele(eq.rele, ini, fim);
+    const frac = somaPeriodos(p) / DIA_MS;
+    let txt, nota = '';
+    if (eq.rele === 'Irrigacao') txt = p.length + (p.length === 1 ? ' ciclo' : ' ciclos') + ' · ' + duracaoCompacta(somaPeriodos(p));
+    else txt = Math.round(frac * 100) + '% · ' + duracaoCompacta(somaPeriodos(p));
+    const pct = Math.round(frac * 100);
+    if (eq.rele === 'Umidificador' && frac >= 0.5 && fracFora(sV, 'acima') >= 0.25)
+      nota = 'Ligado ' + pct + '% do tempo e o VPD ainda ficou acima do ideal em ' + Math.round(fracFora(sV, 'acima') * 100) + '% das leituras: pode estar pequeno para o espaço.';
+    else if (eq.rele === 'Aquecedor' && frac >= 0.5 && fracFora(sT, 'abaixo') >= 0.1)
+      nota = 'Ligado ' + pct + '% do tempo e a temperatura ainda ficou abaixo do mínimo: confira a potência ou o isolamento.';
+    else if (eq.rele === 'Saida de Ar' && frac >= 0.7 && fracFora(sT, 'acima') >= 0.1)
+      nota = 'Exaustão ligada ' + pct + '% do tempo e a temperatura ainda passou do máximo: confira a vazão.';
+    else if (eq.rele !== 'Irrigacao' && eq.rele !== 'Ventilador' && frac >= 0.95)
+      nota = 'Ligado praticamente o tempo todo.';
+    return { eq, frac, txt, nota };
+  }).sort((a, b) => b.frac - a.frac);
+  const html = itens.length ? itens.map(it =>
+    '<div><div class="ini-eq-topo"><span>' + escapeHtml(nomeRele(it.eq.rele)) + '</span><strong style="color:' + (it.nota ? 'var(--amber)' : 'var(--texto)') + ';">' + escapeHtml(it.txt) + '</strong></div>' +
+    '<div class="ini-eq-barra"><i style="width:' + Math.min(100, Math.max(it.frac > 0 ? 1 : 0, it.frac * 100)).toFixed(1) + '%;background:' + it.eq.cor + ';"></i></div>' +
+    (it.nota ? '<small class="ini-eq-nota">' + escapeHtml(it.nota) + '</small>' : '') + '</div>').join('')
+    : '<p class="ini-vazio">Nenhum registro de relé nas últimas 24 horas.</p>';
+  htmlSeMudou(el, html);
+}
+
+/* ---------- Saúde dos dados ---------- */
+const SENSORES_INICIO = [
+  { campo: 'temp_interna', nome: 'Temp. interna' }, { campo: 'umid_interna', nome: 'Umid. interna' },
+  { campo: 'temp_externa', nome: 'Temp. externa' }, { campo: 'umid_externa', nome: 'Umid. externa' },
+  { campo: 'solo_percentual', nome: 'Solo' }, { campo: 'agua_litros', nome: 'Caixa d’água', opcional: true },
+];
+function renderizarSaude(ctx) {
+  const { fim } = ctx;
+  const ini = fim - DIA_MS;
+  const linhas = leituras24h.filter(l => { const t = msLeitura(l); return !isNaN(t) && t >= ini; });
+  // Completo = tempo coberto por leituras. Um intervalo conta como falha quando passa de 2,5 vezes o
+  // ritmo normal (20 s no firmware 2.11, 1 min nos anteriores), então vale para os dois.
+  const primeira = linhas.length ? msLeitura(linhas[0]) : fim;
+  const limiteFalha = Math.max(2.5 * intervaloLeiturasMs(), 50000);
+  let maiorFalha = 0, falhaEm = null, tempoEmFalha = 0;
+  for (let i = 1; i < linhas.length; i++) {
+    const dt = msLeitura(linhas[i]) - msLeitura(linhas[i - 1]);
+    if (dt > maiorFalha) { maiorFalha = dt; falhaEm = msLeitura(linhas[i - 1]); }
+    if (dt > limiteFalha) tempoEmFalha += dt;
+  }
+  const coberto = Math.max(1, fim - Math.max(ini, primeira));
+  const pct = Math.max(0, Math.min(100, Math.round((1 - tempoEmFalha / coberto) * 100)));
+  const ult = linhas[linhas.length - 1] || {};
+  const sensores = SENSORES_INICIO.filter(s => !s.opcional || linhas.some(l => l[s.campo] !== null && l[s.campo] !== undefined));
+  const semLeitura = sensores.filter(s => ult[s.campo] === null || ult[s.campo] === undefined);
+  // Mesmo valor exato por 3 h: o sensor pode ter travado (não vale para a caixa, que fica parada de verdade).
+  const travados = sensores.filter(s => s.campo !== 'agua_litros').filter(s => {
+    const pts = serieDe(linhas.filter(l => msLeitura(l) >= fim - SENSOR_TRAVADO_MS), l => numOuNulo(l[s.campo]));
+    return pts.length >= 150 && pts[pts.length - 1].ms - pts[0].ms >= SENSOR_TRAVADO_MS - 15 * MIN_MS && pts.every(p => p.v === pts[0].v);
+  });
+  const okIc = '<svg data-lucide="circle-check"></svg>', alIc = '<svg data-lucide="triangle-alert"></svg>';
+  const partes = [
+    '<span class="' + (pct >= 95 ? 'ok' : 'atencao') + '">' + (pct >= 95 ? okIc : alIc) + 'Dados ' + pct + '% completos em 24h</span>',
+    '<span class="' + (semLeitura.length ? 'atencao' : '') + '">Sensores respondendo: ' + (sensores.length - semLeitura.length) + ' de ' + sensores.length + '</span>',
+  ];
+  if (maiorFalha > H6_LACUNA_MS) partes.push('<span>Maior falha: ' + escapeHtml(duracaoCompacta(maiorFalha)) + ' às ' + hhmmDeMs(falhaEm) + '</span>');
+  if (linhas.length) partes.push('<span>Última leitura ' + escapeHtml(String(ult.dispositivo_timestamp || ult.criado_em || '').substring(11, 19)) + '</span>');
+  htmlSeMudou(document.getElementById('iniSaude'), partes.join(''));
+  return { pct, semLeitura, travados };
+}
+
+/* ---------- O que pede atenção agora ---------- */
+function estadoReleTexto(rele) {
+  const r = (typeof relesEstado !== 'undefined' && relesEstado) ? relesEstado[rele] : null;
+  if (!r) return '';
+  const ligado = r.valor === 'ligado';
+  const desde = r.desde ? msTexto(r.desde) : NaN;
+  return nomeRele(rele) + (ligado ? ' ligado' : ' desligado') + (isNaN(desde) ? '' : ' há ' + duracaoCompacta(Date.now() - desde));
+}
+function renderizarStatusInicio(ctx, solo, caixa, saude) {
+  const itens = [];
+  const okNomes = [];
+  const trocas = [];
+  ctx.luz24.forEach(p => { trocas.push({ ms: p[0], txt: 'acendeu' }); if (p[1] < ctx.fim) trocas.push({ ms: p[1], txt: 'apagou' }); });
+  H6_SERIES.forEach(s => {
+    const st = ctx.series[s.chave];
+    const sit = st.situacao;
+    if (!sit.lado) { okNomes.push(s.nomeMin); return; }
+    if (sit.ms < DESVIO_PERSISTENTE_MS) { okNomes.push(s.nomeMin); return; }   // oscilação curta não vira aviso
+    const atual = st.pts[st.pts.length - 1].v;
+    const [acao, rele] = s.acao[sit.lado];
+    const detalhes = [s.textoFaixa(st.faixa[0], st.faixa[1]) + '.'];
+    const troca = trocas.filter(t => t.ms <= sit.desde && sit.desde - t.ms <= 2 * HORA_MS).pop();
+    if (troca) detalhes.push('Começou ' + (sit.desde - troca.ms < MIN_MS ? 'quando' : duracaoCompacta(sit.desde - troca.ms) + ' depois que') + ' a luz ' + troca.txt + ' (' + hhmmDeMs(troca.ms) + ').');
+    const er = estadoReleTexto(rele);
+    if (er) detalhes.push(er.charAt(0).toUpperCase() + er.slice(1) + '.');
+    itens.push({ titulo: s.nome + ' ' + sit.lado + ' do ideal há ' + duracaoCompacta(sit.ms) + ' · ' + s.fmt(atual), detalhe: detalhes.join(' '), acao, aba: 'comandos' });
+  });
+  // Solo
+  if (soloSemLeitura) itens.push({ titulo: 'Sensor de solo sem leitura', detalhe: 'Não respondeu nas últimas 3 leituras. Verifique o cabo e a alimentação.', acao: 'Ver dispositivo', aba: 'dispositivo' });
+  else if (solo && solo.atual !== null) {
+    const sitSolo = situacaoAtual(serieDe(leituras24h, l => numOuNulo(l.solo_percentual)), [Number(CONFIG.solo_ideal_min), Number(CONFIG.solo_ideal_max)]);
+    if (sitSolo.lado === 'abaixo' && sitSolo.ms >= DESVIO_PERSISTENTE_MS) itens.push({ titulo: 'Solo seco há ' + duracaoCompacta(sitSolo.ms) + ' · ' + Math.round(solo.atual) + '%', detalhe: 'Ideal entre ' + CONFIG.solo_ideal_min + '% e ' + CONFIG.solo_ideal_max + '%.', acao: 'Irrigar', aba: 'comandos' });
+    else if (sitSolo.lado === 'acima' && sitSolo.ms >= DESVIO_PERSISTENTE_MS) itens.push({ titulo: 'Solo encharcado há ' + duracaoCompacta(sitSolo.ms) + ' · ' + Math.round(solo.atual) + '%', detalhe: 'Ideal entre ' + CONFIG.solo_ideal_min + '% e ' + CONFIG.solo_ideal_max + '%. Evite irrigar até baixar.', leve: true });
+    else if (solo.horas !== null && solo.horas > 0 && solo.horas < 3) itens.push({ titulo: 'Solo chega a ' + CONFIG.solo_ideal_min + '% em ~' + (solo.horas < 1 ? Math.max(1, Math.round(solo.horas * 60)) + ' min' : brN(solo.horas, 1) + ' h'), detalhe: 'Pelo ritmo de secagem das últimas horas.', acao: 'Irrigar', aba: 'comandos', leve: true });
+    if (sitSolo.lado !== 'abaixo' || sitSolo.ms < DESVIO_PERSISTENTE_MS) okNomes.push('solo');
+  }
+  // Caixa d'água
+  const pctAlerta = Number(CONFIG.agua_alerta_min) || 20;
+  if (aguaSemLeitura) itens.push({ titulo: 'Sensor da caixa d’água sem leitura', detalhe: 'Verifique a alimentação em 5 V e o divisor de tensão no pino ECHO.', acao: 'Ver caixa', aba: 'caixa' });
+  else if (caixa && caixa.litros !== null && caixa.litros / CAIXA_CAPACIDADE_L * 100 < pctAlerta) itens.push({ titulo: 'Caixa d’água baixa · ' + brN(caixa.litros, 1) + ' L', detalhe: 'Abaixo de ' + pctAlerta + '%. Abaixo de ' + CAIXA_PROTECAO_PCT + '% a irrigação é bloqueada para proteger a bomba.', acao: 'Ver caixa', aba: 'caixa' });
+  else if (caixa && caixa.dias !== null && caixa.dias < 3) itens.push({ titulo: 'Caixa d’água acaba em ~' + brN(caixa.dias, 1) + (caixa.dias < 2 ? ' dia' : ' dias'), detalhe: 'Consumo médio de ' + brN(caixa.consumo, 1) + ' L/dia.' + (caixa.diasAviso > 0 ? ' Aviso de nível baixo em ~' + brN(caixa.diasAviso, 1) + (caixa.diasAviso < 2 ? ' dia.' : ' dias.') : ''), acao: 'Ver caixa', aba: 'caixa', leve: caixa.dias >= 1.5 });
+  // Sensores
+  saude.travados.forEach(s => itens.push({ titulo: s.nome + ': mesmo valor há mais de 3 h', detalhe: 'O sensor pode estar travado. Confira a conexão ou reinicie o ESP32.', acao: 'Ver dispositivo', aba: 'dispositivo' }));
+
+  itens.sort((a, b) => (a.leve ? 1 : 0) - (b.leve ? 1 : 0));
+  const sec = document.getElementById('iniStatus');
+  const graves = itens.filter(i => !i.leve).length;
+  sec.classList.toggle('atencao', itens.length > 0);
+  const icone = itens.length ? 'triangle-alert' : 'circle-check';
+  htmlSeMudou(document.getElementById('iniStatusIcone'), '<svg data-lucide="' + icone + '"></svg>');
+  let titulo;
+  if (itens.length) titulo = itens.length + (itens.length === 1 ? ' ponto de atenção' : ' pontos de atenção');
+  else {
+    const dentro = H6_SERIES.map(s => ctx.series[s.chave].situacao).filter(x => x.desde !== null).map(x => x.ms);
+    const ms = dentro.length ? Math.min(...dentro) : 0;
+    titulo = 'Tudo dentro da faixa' + (ms >= 10 * MIN_MS ? ' há ' + duracaoCompacta(ms) : '');
+  }
+  document.getElementById('iniStatusTitulo').textContent = titulo;
+  document.getElementById('iniStatusOk').textContent = itens.length && okNomes.length ? (t => t.charAt(0).toUpperCase() + t.slice(1))(listaComE(okNomes)) + ' dentro da faixa' : (graves ? '' : 'a partir das leituras das últimas 24 h');
+  htmlSeMudou(document.getElementById('iniStatusLista'), itens.map(i =>
+    '<div class="ini-item' + (i.leve ? ' leve' : '') + '"><div class="ini-item-texto"><strong>' + escapeHtml(i.titulo) + '</strong><small>' + escapeHtml(i.detalhe) + '</small></div>' +
+    (i.acao ? '<a class="ini-item-acao" href="#' + i.aba + '" data-ir-aba="' + i.aba + '">' + escapeHtml(i.acao) + '<svg data-lucide="arrow-right"></svg></a>' : '') + '</div>').join(''));
+}
+
+/* ---------- Tudo junto ---------- */
+function renderizarInicio() {
+  if (!document.getElementById('iniStatus') || !leituras24hCarregadas) return;
+  const fim = leituras24h.length ? msLeitura(leituras24h[leituras24h.length - 1]) : NaN;
+  if (isNaN(fim)) { renderizarHist6(null); return; }
+  const ctx = { fim, luz24: periodosLuz(fim - DIA_MS, fim), series: {} };
+  ctx.linhas6 = leituras24h.filter(l => { const t = msLeitura(l); return !isNaN(t) && t >= fim - H6_JANELA_MS; });
+  H6_SERIES.forEach(s => {
+    const pts = serieDe(leituras24h, s.valor);
+    const faixa = s.faixa();
+    ctx.series[s.chave] = { pts, faixa, situacao: situacaoAtual(pts, faixa), tend: tendenciaPorHora(pts) };
+  });
+  const etapas = [
+    () => renderizarHist6(ctx),
+    () => { ctx.solo = renderizarSoloExtra(ctx); },
+    () => { ctx.caixa = renderizarCaixaExtra(ctx); },
+    () => renderizarResumoLuz(ctx),
+    () => renderizarEquipamentos(ctx),
+    () => { ctx.saude = renderizarSaude(ctx); },
+    () => renderizarStatusInicio(ctx, ctx.solo, ctx.caixa, ctx.saude || { travados: [] }),
+    () => h6EscreverInfo(),
+  ];
+  // Uma parte com problema não derruba as outras.
+  etapas.forEach(f => { try { f(); } catch (e) { console.warn('início:', e); } });
 }
 
 /* ==================== Fotoperíodo (janela de luz por fase) ==================== */
@@ -615,11 +1536,11 @@ function atualizarCardLuz() {
     const est = estadoEDuracaoLuz(modoAtualParaLuz);
     if (est.ligada) {
       const aceso = ((minAgora - j.inicioMin) % 1440 + 1440) % 1440;
-      el.textContent = formatarDuracaoCurta(aceso);
-      leg.textContent = 'de ' + HORAS_LUZ_POR_MODO[modoAtualParaLuz] + 'h · apaga ' + minParaHHMM(j.fimMin);
+      el.textContent = 'Luz acesa há ' + formatarDuracaoCurta(aceso);
+      leg.textContent = ' · apaga ' + minParaHHMM(j.fimMin);
     } else {
-      el.textContent = 'Apagada';
-      leg.textContent = 'acende ' + minParaHHMM(j.inicioMin) + ' · em ' + formatarDuracaoCurta(Math.ceil(est.totalSegundos / 60));
+      el.textContent = 'Luz apagada';
+      leg.textContent = ' · acende ' + minParaHHMM(j.inicioMin) + ' (em ' + formatarDuracaoCurta(Math.ceil(est.totalSegundos / 60)) + ')';
     }
   }
   atualizarRodape();
@@ -733,7 +1654,7 @@ function quandoTexto(ms) {
 function duracaoCompacta(ms) { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h' + pad2(m % 60); }
 function duracaoCurta(ms) { const t = formatarDuracao(ms); return t === 'agora mesmo' ? 'menos de 1 min' : t; }
 function origemCurta(origem) {
-  return ({ automacao: 'Automático', automatico_luz: 'Automático', retomou_automatico: 'Automático', web: 'Painel', manual: 'Botão do OLED',
+  return ({ automacao: 'Automático', automatico_luz: 'Automático', retomou_automatico: 'Automático', web: 'Painel', rfid: 'Cartão RFID', manual: 'Botão do OLED',
     botao: 'Botão', protecao_agua: 'Proteção da bomba', bloqueio_agua: 'Proteção da bomba', pausa_painel: 'Painel', pausa_oled: 'Botão do OLED', sistema: 'Sistema', servidor: 'Servidor', telegram: 'Telegram', boot: 'Ao ligar' })[origem] || origem || '—';
 }
 function htmlOrigem(origem) {
@@ -820,6 +1741,12 @@ function construirItensRoda() {
       const pausa = String(c.origem || '').indexOf('pausa') === 0;
       const rel = pausa ? ultimoTodosComandos.find(x => x.tipo === 'rele' && (x.alvo === 'Aquecedor' || x.alvo === 'Umidificador') && x.origem !== 'automacao' && Math.abs(msEvento(x) - ms) <= 2 * 60000) : null;
       item = { categoria: 'automacoes', foco: null, cor: RODA_COR.auto, icone: pausa ? 'pause' : 'gauge', vazado: pausa, ...textoClima(c, rel) };
+    } else if (c.tipo === 'aquecedor_noturno') {
+      // O ESP32 reconfirma o estado a cada reinício: só vira item quando o estado muda.
+      const anterior = ultimoTodosComandos.find(x => x.tipo === 'aquecedor_noturno' && msEvento(x) < ms);
+      if (c.origem === 'boot' && (anterior ? anterior.valor === c.valor : c.valor === '0')) return;
+      const pausa = String(c.origem || '').indexOf('pausa') === 0;
+      item = { categoria: 'automacoes', foco: 'Aquecedor', cor: RODA_COR.auto, icone: pausa ? 'pause' : 'moon', vazado: pausa || c.valor !== '1', ...textoAqNoturno(c) };
     } else if (c.tipo === 'automacao') {
       const a = automacaoPorChave(c.alvo);
       const rel = a && String(c.origem || '').indexOf('pausa') === 0
@@ -861,8 +1788,9 @@ function itemPeriodo(anel, aberto, evFim, fimMs) {
   const dur = duracaoCurta(ate - ini);
   // ciclos do clima por VPD mostram o VPD; registros antigos, a temperatura ou a umidade
   const climaNoInicio = climaEm(ini);
-  const cfgClima = aberto.ev.origem === 'automacao' ? climaNoInicio : null;
-  const campo = climaNoInicio ? 'vpd' : (a ? a.campoLeitura : null);
+  const aqAuto = anel.rele === 'Aquecedor' && aberto.ev.origem === 'automacao' && !!leituraDaAcao(aberto.ev);  // aquecedor noturno
+  const cfgClima = aberto.ev.origem === 'automacao' ? (climaNoInicio || (aqAuto ? estadoClima() : null)) : null;
+  const campo = (climaNoInicio || aqAuto) ? 'vpd' : (a ? a.campoLeitura : null);
   const lidaIni = campo === 'vpd' && !aberto.cortado ? leituraDaAcao(aberto.ev) : null;
   const lidaFim = campo === 'vpd' && evFim ? leituraDaAcao(evFim) : null;
   const vIni = campo === 'vpd' ? (lidaIni && lidaIni.vpd !== null ? lidaIni.vpd : vpdEm(ini)) : (campo ? leituraEm(campo, ini) : null);
@@ -1052,7 +1980,9 @@ function linhasDetalhe(it) {
       const novo = it.evFim || it.evIni ? ['ponto_ligar', 'ponto_desligar', 'teto', 'piso'].includes(motivoIni) || ['ponto_ligar', 'ponto_desligar', 'teto', 'piso'].includes(motivoFim) : true;
       const desligouNoMinimo = it.evFim ? motivoFim === 'vpd_min' : true;
       const pc = pontosClima(cf);
-      L.push(['Regra', it.anel.rele === 'Aquecedor' ? 'liga abaixo de ' + brN(cf.min, 2) + ' · desliga em ' + brN(centro, 2)
+      const noturno = it.anel.rele === 'Aquecedor' && (MOTIVOS_AQ_NOTURNO.includes(motivoIni) || MOTIVOS_AQ_NOTURNO.includes(motivoFim));
+      L.push(['Regra', noturno ? regraAqNoturno(cf)
+        : it.anel.rele === 'Aquecedor' ? 'liga abaixo de ' + brN(cf.min, 2) + ' · desliga em ' + brN(centro, 2)
         : novo ? 'liga em ' + brN(pc.liga, 2) + ' · desliga em ' + brN(pc.desliga, 2) + ' (sempre dentro da faixa)'
         : 'liga acima de ' + brN(cf.max, 2) + ' · desliga em ' + brN(desligouNoMinimo ? cf.min : centro, 2)]);
       L.push(['Fase do clima', faseClima(cf.fase).nome + ' · ' + brN(cf.min, 2) + '–' + brN(cf.max, 2) + ' kPa']);
@@ -1195,6 +2125,8 @@ async function carregarRodaEventos() {
   const modoAtual = d.modo_atual === 'floracao' ? 'floracao' : 'vegetativo';
   automacoesEsp = d.automacoes || {};
   climaEsp = d.clima || null;
+  aqNoturnoEsp = d.aquecedor_noturno || null;
+  if (aqNoturnoPendente && ((aqNoturnoEsp && (aqNoturnoEsp.valor === '1') === aqNoturnoPendente.ativa) || Date.now() > aqNoturnoPendente.ate)) aqNoturnoPendente = null;
   resolverPendenciaClima();
 
   modoAtualParaLuz = modoAtual;
@@ -1220,7 +2152,9 @@ async function carregarRodaEventos() {
   });
 
   ultimoEventosHoje = eventosHoje;
+  const modoMudou = ultimoModoAtual !== modoAtual;
   ultimoModoAtual = modoAtual;
+  if (modoMudou) { renderizarInicio(); atualizarStatsVpd(); } // faixa ideal do VPD e fotoperíodo seguem a fase
   renderizarRoda();
   atualizarBotoesComando(todos, modoAtual);
   atualizarCardLuz();
@@ -1296,23 +2230,25 @@ function renderizarControles(todosComandos) {
   const jm = janelaDoModo(modo);
   const ultimoModo = todosComandos.find(c => c.tipo === 'modo_cultivo');
   cards.push(
-    '<div class="rele-card fase largo">' +
-      '<div class="rele-card-topo">' +
-        '<div class="rele-icone"><svg data-lucide="' + (modo === 'floracao' ? 'flower-2' : 'sprout') + '"></svg></div>' +
-        '<span class="rele-num">Fase</span>' +
-      '</div>' +
-      '<div class="rele-nome">Modo de cultivo</div>' +
-      '<div class="rele-rodape">' +
-        '<div class="rele-estado"><strong>' + (modo === 'floracao' ? 'Floração' : 'Vegetação') + '</strong>' +
-          HORAS_LUZ_POR_MODO[modo] + 'h luz · ' + minParaHHMM(jm.inicioMin) + '–' + minParaHHMM(jm.fimMin) + '</div>' +
-        '<a class="rele-acao verde" href="#fotoperiodo" data-ir-aba="fotoperiodo" aria-label="Trocar de fase no Fotoperíodo" title="Trocar de fase no Fotoperíodo"><svg data-lucide="arrow-right"></svg></a>' +
-      '</div>' +
+    '<div class="rele-card fase largo compacto">' +
+      '<div class="rele-icone"><svg data-lucide="' + (modo === 'floracao' ? 'flower-2' : 'sprout') + '"></svg></div>' +
+      '<div class="rele-estado"><span class="rele-rotulo">Fase do cultivo</span><strong>' + (modo === 'floracao' ? 'Floração' : 'Vegetação') +
+        (CICLO && (CICLO.fase_pedida || CICLO.fase) === modo && CICLO.dia ? ' · dia ' + CICLO.dia : '') + '</strong></div>' +
+      '<div class="rele-fase-luz"><svg data-lucide="sun"></svg>' + HORAS_LUZ_POR_MODO[modo] + 'h · ' + minParaHHMM(jm.inicioMin) + '–' + minParaHHMM(jm.fimMin) + '</div>' +
+      '<a class="btn btn-sec rele-fase-link" href="#fotoperiodo" data-ir-aba="fotoperiodo">Trocar fase<svg data-lucide="arrow-right"></svg></a>' +
     '</div>'
   );
 
-  cards.push(htmlCardClima(todosComandos));
-
+  // Ordem da página: faixa de VPD no topo, depois as automações (umidificador e aquecedor), depois os relés.
+  const climaHtml = htmlCardClima(todosComandos);
+  cards.unshift(climaHtml.faixa);
   container.innerHTML = cards.join('');
+  const autos = document.getElementById('cmdAutomacoes');
+  if (autos) {
+    autos.innerHTML = climaHtml.auto + htmlCardAqNoturno(todosComandos);
+    const ativas = (estadoClima().ativa ? 1 : 0) + (estadoAqNoturno().ativa ? 1 : 0);
+    document.getElementById('cmdAutoResumo').innerHTML = '<b>' + ativas + '</b> de 2 ativas';
+  }
   renderizarBotoesReles(todosComandos);
 }
 
@@ -1404,6 +2340,92 @@ function htmlPassoClima(campo, rotulo, valor, podeMenos, podeMais, mudou) {
     '<button type="button" data-clima-passo="' + campo + '" data-delta="1" aria-label="Aumentar ' + rotulo.toLowerCase() + '"' + (podeMais ? '' : ' disabled') + '><svg data-lucide="plus"></svg></button></div></div>';
 }
 
+/* ==================== Aquecedor noturno (firmware 2.10.0) ==================== */
+// Roda no ESP32: liga quando a luz apaga (pelo timer), desliga quando o VPD chega no ponto de desligar da fase,
+// religa se o VPD ficar abaixo do ponto de ligar por 5 min. Trava: temperatura (a mesma "travaTemp" do clima).
+const AQ_NOTURNO_MARGEM = 0.20, AQ_NOTURNO_ABAIXO_MIN = 5;
+let aqNoturnoEsp = null;        // { valor: '1'|'0', origem, quando } confirmado pelo ESP32
+let aqNoturnoPendente = null;   // { ativa, ate } enviado e ainda não confirmado
+function estadoAqNoturno() {
+  if (aqNoturnoPendente) return { ativa: aqNoturnoPendente.ativa, pendente: true, registro: true };
+  if (aqNoturnoEsp) return { ativa: aqNoturnoEsp.valor === '1', pendente: false, registro: true, origem: aqNoturnoEsp.origem };
+  return { ativa: false, pendente: false, registro: false };
+}
+// Pontos (iguais aos do firmware 2.12.2), sempre relativos à faixa da fase em uso:
+// liga abaixo do mínimo e desliga em máximo − 0,20.
+function pontosAqNoturno(cf) {
+  const liga = cf.min;
+  let desliga = cf.max - AQ_NOTURNO_MARGEM;
+  if (desliga <= liga) desliga = (cf.min + cf.max) / 2;
+  return { liga, desliga };
+}
+function alvoAqNoturno(cf) { return pontosAqNoturno(cf).desliga; }
+function ligaAqNoturno(cf) { return pontosAqNoturno(cf).liga; }
+function aqNoturnoAtivoNoRele(nomeRele) { return nomeRele === 'Aquecedor' && estadoAqNoturno().ativa; }
+function htmlCardAqNoturno(todosComandos) {
+  const est = estadoAqNoturno(), cf = estadoClima();
+  const alvo = alvoAqNoturno(cf);
+  const j = janelaDoModo(ultimoModoCmd);
+  const noite = !estadoEDuracaoLuz(modoAtualParaLuz).ligada;
+  const reg = ultimoRegistroRele(todosComandos, 'Aquecedor');
+  const ligado = !!reg && reg.valor === 'ligado';
+  const vpd = vpdDeLeitura(ultimaLeitura);
+  const temp = ultimaLeitura && ultimaLeitura.temp_interna !== null && ultimaLeitura.temp_interna !== undefined ? Number(ultimaLeitura.temp_interna) : null;
+  let titulo, detalhe;
+  if (est.pendente) { titulo = est.ativa ? 'Ativando…' : 'Desativando…'; detalhe = 'aguardando o ESP32'; }
+  else if (!est.registro) { titulo = 'Desativado'; detalhe = 'requer firmware 2.10 no ESP32'; }
+  else if (!est.ativa) { titulo = String(est.origem || '').indexOf('pausa') === 0 ? 'Pausado' : 'Desativado'; detalhe = String(est.origem || '').indexOf('pausa') === 0 ? 'comando manual no aquecedor' : 'toque para ativar'; }
+  else if (!noite) { titulo = 'Ativo'; detalhe = 'liga quando a luz apagar, às ' + minParaHHMM(j.fimMin); }
+  else if (temp !== null && temp >= cf.travaTemp) { titulo = 'Ativo · na trava'; detalhe = brN(temp, 1) + ' °C (máx. ' + brN(cf.travaTemp, 1) + ' °C)'; }
+  else if (ligado) { titulo = 'Ativo · aquecendo'; detalhe = 'até o VPD chegar em ' + brN(alvo, 2) + (vpd !== null ? ' · agora ' + brN(vpd, 2) : ''); }
+  else { titulo = 'Ativo · em espera'; detalhe = 'religa se o VPD ficar abaixo de ' + brN(ligaAqNoturno(cf), 2) + ' por ' + AQ_NOTURNO_ABAIXO_MIN + ' min'; }
+  const haAq = reg ? formatarDuracao(Date.now() - inicioEstadoRele('Aquecedor', reg)) : '';
+  const linhaRele = '<div class="vpd-equip"><div class="vpd-eq' + (ligado ? ' on' : '') + '"><div class="vpd-eq-icone" style="background:' + corSuave('#e8a05c') + ';color:#e8a05c"><svg data-lucide="' + (RELE_ICONE['Aquecedor'] || 'heater') + '"></svg></div>' +
+    '<div class="vpd-eq-texto"><strong>Aquecedor<small>Relé ' + (RELE_NUMERO['Aquecedor'] ?? 5) + '</small></strong><span>' + escapeHtml(detalhe) + '</span></div>' +
+    '<span class="vpd-pill' + (ligado ? ' on' : '') + '">' + (ligado ? 'Ligado' : 'Desligado') + '</span></div></div>';
+  const resumo = !est.ativa || est.pendente ? detalhe : (noite ? 'período noturno' : 'aguardando a noite') + (haAq && haAq !== 'agora mesmo' && ligado ? ' · ligado há ' + haAq : '');
+  return '<div class="rele-card auto-card vpd-card' + (est.ativa ? ' liberado' : '') + (est.pendente ? ' pendente' : '') + '" id="cardAqNoturno">' +
+    '<div class="vpd-topo"><div class="rele-icone vpd-icone"><svg data-lucide="moon"></svg></div>' +
+      '<div class="rele-estado"><span class="rele-rotulo">Aquecedor · noturno</span><strong>' + titulo + '</strong>' + escapeHtml(resumo) + '</div>' +
+      '<button type="button" class="switch" role="switch" aria-checked="' + est.ativa + '" aria-label="Automação do aquecedor (noturno)" data-aq-noturno-switch' + (est.pendente ? ' disabled' : '') + '></button></div>' +
+    linhaRele +
+    '<div class="vpd-pontos">' +
+      '<span><small>Liga</small><b>luz apaga · ' + minParaHHMM(j.fimMin) + '</b></span>' +
+      '<span><small>Desliga em</small><b>' + brN(alvo, 2) + ' kPa</b></span>' +
+      '<span><small>Religa abaixo de</small><b>' + brN(ligaAqNoturno(cf), 2) + ' por ' + AQ_NOTURNO_ABAIXO_MIN + ' min</b></span>' +
+      '<span><small>Trava de temperatura</small><b>' + brN(cf.travaTemp, 1) + ' °C</b></span></div>' +
+    '<details class="ajuda" data-aq-ajuda' + (aqAjudaAberta ? ' open' : '') + '><summary><svg data-lucide="info"></svg>Como o aquecedor noturno decide<svg data-lucide="chevron-down" class="ajuda-seta"></svg></summary><div><ul>' +
+      '<li>Vale só com a luz apagada pelo timer; roda no ESP32, mesmo sem internet.</li>' +
+      '<li>Liga quando a luz apaga e desliga quando o VPD chega em <b>' + brN(alvo, 2) + '</b>.</li>' +
+      '<li>Religa se o VPD ficar abaixo de <b>' + brN(ligaAqNoturno(cf), 2) + '</b> por ' + AQ_NOTURNO_ABAIXO_MIN + ' min seguidos.</li>' +
+      '<li>Desliga na hora ao chegar em <b>' + brN(cf.travaTemp, 1) + ' °C</b>, sem leitura do sensor ou quando a luz acende.</li>' +
+      '<li>Os pontos vêm da faixa da fase em uso: liga abaixo do mínimo e desliga em máximo − 0,20.</li>' +
+      '<li>Usa a média de 1 min do sensor.</li>' +
+      '<li>Ao trocar a fase do cultivo ou editar a faixa, os pontos de desligar e religar mudam sozinhos.</li>' +
+      '<li>Ligar ou desligar o aquecedor à mão pausa esta automação.</li></ul></div></details></div>';
+}
+async function enviarAqNoturno(ativa) {
+  aqNoturnoPendente = { ativa, ate: Date.now() + 90 * 1000 };
+  renderizarControles(ultimoTodosComandos);
+  const ok = await enviarComando('aquecedor_noturno', 'aquecedor', ativa ? '1' : '0', null);
+  if (!ok) { aqNoturnoPendente = null; renderizarControles(ultimoTodosComandos); return; }
+  [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
+}
+document.addEventListener('click', ev => {
+  const sw = ev.target.closest('.switch[data-aq-noturno-switch]');
+  if (sw && !sw.disabled) enviarAqNoturno(!estadoAqNoturno().ativa);
+});
+let aqAjudaAberta = false;
+document.addEventListener('toggle', ev => { if (ev.target.matches && ev.target.matches('[data-aq-ajuda]')) aqAjudaAberta = ev.target.open; }, true);
+// Texto de um registro "aquecedor_noturno" no relógio de eventos.
+function textoAqNoturno(c) {
+  const pausa = String(c.origem || '').indexOf('pausa') === 0;
+  if (pausa) return { titulo: 'Aquecedor noturno pausado', sub: origemCurta(c.origem) + ' · aquecedor acionado manualmente' };
+  return { titulo: 'Aquecedor noturno ' + (c.valor === '1' ? 'ativado' : 'desativado'), sub: origemCurta(c.origem) };
+}
+
+let climaAjudaAberta = false; // o card é redesenhado a cada atualização; lembra se a ajuda estava aberta
+document.addEventListener('toggle', ev => { if (ev.target.matches && ev.target.matches('[data-clima-ajuda]')) climaAjudaAberta = ev.target.open; }, true);
 function htmlCardClima(todosComandos) {
   const est = estadoClima();
   const fase = faseClima(est.fase);
@@ -1456,10 +2478,16 @@ function htmlCardClima(todosComandos) {
       '<span class="vpd-pill' + (ligado ? ' on' : '') + '">' + (ligado ? 'Ligado' : 'Desligado') + '</span></div>';
   };
   const equip = '<div class="vpd-equip">' + linhaEquip('Umidificador', 'droplets', '#6fb3e0', false) + '</div>';
-  const regra = '<div class="vpd-regra">O VPD fica sempre dentro da faixa <b>' + brN(est.min, 2) + '–' + brN(est.max, 2) + '</b>: o umidificador liga em <b>' + brN(pc.liga, 2) + '</b>, antes do máximo, ' +
-    'e desliga em <b>' + brN(pc.desliga, 2) + '</b>, antes do mínimo. Se chegar perto de uma borda (<b>' + brN(pc.teto, 2) + '</b> ou <b>' + brN(pc.piso, 2) + '</b>), age na hora, sem esperar o tempo mínimo. Trava: umidificador até <b>' + Math.round(est.travaUmid) + '%</b>. ' +
-    'Fica no mínimo <b>' + est.minLigado + ' min</b> ligado e <b>' + est.minDesligado + ' min</b> desligado; o controle usa a média de 1 min, então picos de névoa no sensor não contam. ' +
-    'O aquecedor não participa.</div>';
+  // Regras do controle: números em destaque sempre à vista; o texto completo fica recolhido.
+  const regra = '<div class="vpd-pontos">' +
+      '<span><small>Liga em</small><b>' + brN(pc.liga, 2) + '</b></span><span><small>Desliga em</small><b>' + brN(pc.desliga, 2) + '</b></span>' +
+      '<span><small>Trava de umidade</small><b>' + Math.round(est.travaUmid) + '%</b></span><span><small>Mín. ligado / desligado</small><b>' + est.minLigado + ' / ' + est.minDesligado + ' min</b></span></div>' +
+    '<details class="ajuda" data-clima-ajuda' + (climaAjudaAberta ? ' open' : '') + '><summary><svg data-lucide="info"></svg>Como o controle decide<svg data-lucide="chevron-down" class="ajuda-seta"></svg></summary><div><ul>' +
+      '<li>O ESP32 controla o umidificador para manter o VPD entre <b>' + brN(est.min, 2) + '</b> e <b>' + brN(est.max, 2) + '</b> kPa.</li>' +
+      '<li>Liga em <b>' + brN(pc.liga, 2) + '</b>, antes do máximo; desliga em <b>' + brN(pc.desliga, 2) + '</b>, antes do mínimo.</li>' +
+      '<li>Perto das bordas (<b>' + brN(pc.teto, 2) + '</b> ou <b>' + brN(pc.piso, 2) + '</b>) age na hora, sem esperar o tempo mínimo.</li>' +
+      '<li>Usa a média de 1 min: picos de névoa no sensor não contam.</li>' +
+      '<li>O aquecedor não participa.</li></ul></div></details>';
 
   // ajustes (faixa da fase e travas)
   let ajustes;
@@ -1475,7 +2503,8 @@ function htmlCardClima(todosComandos) {
       '</div><p>Cada fase guarda a própria faixa (a mesma usada nos alertas de VPD).</p>' +
       '<h5>Trava de segurança e tempo mínimo</h5><div class="auto-faixa vpd-trava">' +
         htmlPassoClima('umid', 'Umidificador até', Math.round(r.umid) + '%', r.umid - 1 >= 30, r.umid + 1 <= 95, r.umid !== tv.umid) +
-      '</div><p>O umidificador nunca passa dessa umidade, mesmo com o VPD perto do máximo.</p>' +
+        htmlPassoClima('temp', 'Aquecedor até', brN(r.temp, 1) + ' °C', r.temp - 0.5 >= 15, r.temp + 0.5 <= 40, r.temp !== tv.temp) +
+      '</div><p>O umidificador nunca passa dessa umidade, e o aquecedor noturno nunca passa dessa temperatura.</p>' +
       '<div class="auto-faixa">' +
         htmlPassoClima('lig', 'Ligado no mínimo', r.lig + ' min', r.lig - 1 >= 1, r.lig + 1 <= 15, r.lig !== tv.lig) +
         htmlPassoClima('des', 'Desligado no mínimo', r.des + ' min', r.des - 1 >= 1, r.des + 1 <= 15, r.des !== tv.des) +
@@ -1494,13 +2523,16 @@ function htmlCardClima(todosComandos) {
   else if (est.registro && String(est.origem || '').indexOf('pausa') === 0) { titulo = 'Pausada'; detalhe = 'comando manual no umidificador'; }
   else { titulo = 'Desativada'; detalhe = est.registro ? 'toque para ativar' : 'sem registro do ESP32'; }
 
-  return '<div class="rele-card largo auto-card vpd-card' + (est.ativa ? ' liberado' : '') + (est.pendente ? ' pendente' : '') + '" id="cardVpd">' +
-    '<div class="rele-card-topo"><div class="rele-icone vpd-icone"><svg data-lucide="gauge"></svg></div><span class="rele-num">Relé 3</span></div>' +
-    '<div class="rele-nome">Clima por VPD</div>' +
-    '<div class="vpd-desc">Escolha a fase e o ESP32 controla o umidificador: liga antes do VPD chegar no máximo e desliga antes do mínimo, para ele ficar sempre dentro da faixa.</div>' +
-    '<div class="vpd-fases">' + fases + '</div>' + medidor + equip + regra + ajustes +
-    '<div class="rele-rodape"><div class="rele-estado"><strong>' + titulo + '</strong>' + escapeHtml(detalhe) + '</div>' +
-    '<button type="button" class="switch" role="switch" aria-checked="' + est.ativa + '" aria-label="Clima por VPD" data-clima-switch' + (est.pendente ? ' disabled' : '') + '></button></div></div>';
+  // Duas partes: a faixa de VPD (referência das automações, no topo da página) e a automação do umidificador.
+  return {
+    faixa: '<div class="rele-card largo auto-card vpd-card vpd-faixa" id="cardVpd">' +
+      '<div class="vpd-fases">' + fases + '</div>' + medidor + ajustes + '</div>',
+    auto: '<div class="rele-card auto-card vpd-card' + (est.ativa ? ' liberado' : '') + (est.pendente ? ' pendente' : '') + '" id="cardAutoUmid">' +
+      '<div class="vpd-topo"><div class="rele-icone vpd-icone"><svg data-lucide="droplets"></svg></div>' +
+        '<div class="rele-estado"><span class="rele-rotulo">Umidificador · clima por VPD</span><strong>' + titulo + '</strong>' + escapeHtml(detalhe) + '</div>' +
+        '<button type="button" class="switch" role="switch" aria-checked="' + est.ativa + '" aria-label="Automação do umidificador (clima por VPD)" data-clima-switch' + (est.pendente ? ' disabled' : '') + '></button></div>' +
+      equip + regra + '</div>',
+  };
 }
 
 async function enviarClima(novo) {
@@ -1626,7 +2658,15 @@ function pontosClima(cf) {
   const w = cf.max - cf.min;
   return { liga: cf.max - w * 0.25, desliga: cf.min + w * 0.25, teto: cf.max - w * 0.10, piso: cf.min + w * 0.10 };
 }
+const MOTIVOS_AQ_NOTURNO = ['luz_apagou', 'alvo_noturno', 'abaixo_min', 'luz_acendeu'];
+function regraAqNoturno(cf) {
+  return 'liga quando a luz apaga · desliga em ' + brN(alvoAqNoturno(cf), 2) + ' kPa · religa abaixo de ' + brN(ligaAqNoturno(cf), 2) + ' por ' + AQ_NOTURNO_ABAIXO_MIN + ' min';
+}
 const MOTIVO_CLIMA = {
+  luz_apagou: () => 'a luz apagou (aquecedor noturno)',
+  alvo_noturno: cf => 'VPD chegou no ponto de desligar (' + brN(alvoAqNoturno(cf), 2) + ')',
+  abaixo_min: cf => 'VPD abaixo de ' + brN(ligaAqNoturno(cf), 2) + ' por ' + AQ_NOTURNO_ABAIXO_MIN + ' min',
+  luz_acendeu: () => 'a luz acendeu (fim do período noturno)',
   ponto_ligar: cf => 'VPD chegou no ponto de ligar (' + brN(pontosClima(cf).liga, 2) + '), antes do máximo ' + brN(cf.max, 2),
   ponto_desligar: cf => 'VPD chegou no ponto de desligar (' + brN(pontosClima(cf).desliga, 2) + '), antes do mínimo ' + brN(cf.min, 2),
   teto: cf => 'VPD quase no máximo (' + brN(cf.max, 2) + ') — ligou na hora',
@@ -1701,7 +2741,7 @@ function automacaoDoRele(nomeRele) {
 
 /* ---------- Automações no relógio de eventos ---------- */
 function ehEventoAutomacao(c) {
-  return c.tipo === 'automacao' || c.tipo === 'clima_vpd' || (c.tipo === 'rele' && c.origem === 'automacao');
+  return c.tipo === 'automacao' || c.tipo === 'clima_vpd' || c.tipo === 'aquecedor_noturno' || (c.tipo === 'rele' && c.origem === 'automacao');
 }
 function msEvento(c) { return new Date(String(timestampEvento(c) || '').replace(' ', 'T')).getTime(); }
 function dataEvento(c) {
@@ -1736,6 +2776,7 @@ function leituraEm(campo, ms) {
 
 function descricaoAutomacao(c) {
   if (c.tipo === 'clima_vpd') return textoClima(c).titulo;
+  if (c.tipo === 'aquecedor_noturno') return textoAqNoturno(c).titulo;
   if (c.tipo === 'rele') {
     return (RELE_ROTULO[c.alvo] || c.alvo) + (c.valor === 'ligado' ? ' ligado' : ' desligado') + ' pela automação';
   }
@@ -1755,6 +2796,10 @@ function descricaoAutomacao(c) {
 // Linhas extras do detalhe: leitura, regra aplicada e quanto tempo ficou ligado.
 function detalheAutomacao(c) {
   if (c.tipo === 'clima_vpd') return linhasClimaConfig(c);
+  if (c.tipo === 'aquecedor_noturno') {
+    const cf = climaEm(msEvento(c)) || estadoClima();
+    return [['Regra', regraAqNoturno(cf)], ['Trava', 'aquecedor até ' + brN(cf.travaTemp, 1) + ' °C'], ['Origem', origemCurta(c.origem)]];
+  }
   const linhas = [];
   const ms = msEvento(c);
   if (c.tipo === 'automacao') {
@@ -1771,7 +2816,12 @@ function detalheAutomacao(c) {
   if (!a) return linhas;
   const ligou = c.valor === 'ligado';
   const cfgClima = climaEm(ms);
-  if (cfgClima && cfgClima.ativa) {
+  const lidaAq = c.alvo === 'Aquecedor' ? leituraDaAcao(c) : null;
+  if (lidaAq) {
+    // aquecedor noturno (firmware 2.10): o motivo vem do ESP32, com ou sem o clima do umidificador ativo
+    linhasAcaoClima(c, cfgClima || estadoClima()).forEach(l => linhas.push(l));
+    if (MOTIVOS_AQ_NOTURNO.includes(lidaAq.motivo)) linhas.push(['Regra', regraAqNoturno(cfgClima || estadoClima())]);
+  } else if (cfgClima && cfgClima.ativa) {
     linhasAcaoClima(c, cfgClima).forEach(l => linhas.push(l));
   } else {
     // registro antigo (automação por temperatura/umidade, firmware 2.5)
@@ -1992,6 +3042,7 @@ function renderizarBotoesReles(todosComandos) {
       const dur = isNaN(desde) ? '' : formatarDuracao(agora - desde);
       detalhe = !dur ? '' : (dur === 'agora mesmo' ? dur : 'há ' + dur);
       if (climaAtivoNoRele(nome)) detalhe = 'clima por VPD' + (detalhe ? ' · ' + detalhe : '');
+      if (aqNoturnoAtivoNoRele(nome)) detalhe = 'noturno automático' + (detalhe ? ' · ' + detalhe : '');
     }
 
     // Proteção da bomba: com a caixa abaixo de 10% a irrigação não liga (o ESP32 também recusa).
@@ -2015,6 +3066,11 @@ function renderizarBotoesReles(todosComandos) {
       '</div>';
     container.appendChild(card);
   });
+  const resumo = document.getElementById('cmdRelesResumo');
+  if (resumo) {
+    const total = container.querySelectorAll('.rele-card').length, ligados = container.querySelectorAll('.rele-card.on').length;
+    resumo.innerHTML = '<b>' + ligados + '</b> de ' + total + ' ligados';
+  }
   if (window.lucide) lucide.createIcons();
 }
 
@@ -2027,6 +3083,7 @@ document.addEventListener('click', async ev => {
   renderizarBotoesReles(ultimoTodosComandos);
   // Comando manual no aquecedor/umidificador pausa o clima por VPD (o ESP32 faz o mesmo ao receber).
   const pausaClima = climaAtivoNoRele(nome);
+  const pausaAq = aqNoturnoAtivoNoRele(nome);
   const estClima = estadoClima();
   const ok = await enviarComando('rele', nome, novoValor, null);
   if (!ok) {
@@ -2038,6 +3095,11 @@ document.addEventListener('click', async ev => {
     climaPendente = Object.assign({}, estClima, { ativa: false, pendente: undefined, registro: undefined, origem: undefined, ate: Date.now() + 90 * 1000 });
     renderizarControles(ultimoTodosComandos);
     mostrarToast('\u2713 comando enviado \u2014 clima por VPD pausado', 'ok');
+  }
+  if (pausaAq) {
+    aqNoturnoPendente = { ativa: false, ate: Date.now() + 90 * 1000 };
+    renderizarControles(ultimoTodosComandos);
+    mostrarToast('\u2713 comando enviado \u2014 aquecedor noturno pausado', 'ok');
   }
   // Reconsulta algumas vezes até o ESP32 confirmar.
   [6000, 15000, 30000].forEach(ms => setTimeout(() => { carregarRodaEventos().catch(() => {}); }, ms));
@@ -2073,7 +3135,7 @@ function estadoTimerEsp(modo) {
     legenda: 'ESP32: ' + faixa(hhmmParaMin(info.confirmado)) + ' · painel: ' + faixa(salvoMin) };
   if (estado === 'aguardando') return { classe: 'espera', icone: 'clock', texto: 'Aguardando',
     legenda: 'Enviado ' + faixa(salvoMin) + (info && info.salvo_ha_seg !== null ? ' há ' + textoHa(Number(info.salvo_ha_seg)) : '') };
-  return { classe: '', icone: 'circle-help', texto: 'Sem confirmação', legenda: 'O ESP32 informa o timer ao ligar e após cada comando' };
+  return { classe: '', icone: 'circle-help', texto: 'Sem confirmação', legenda: 'aguardando o ESP32 informar' };
 }
 
 function hojeIso() {
@@ -2084,8 +3146,8 @@ function hojeIso() {
 function secaoTrocaFase(modo) {
   const prog = CICLO && CICLO.programada && CICLO.programada.fase === modo ? CICLO.programada : null;
   const inicio = minParaHHMM(inicioLuzMin(modo));
-  let html = '<div class="troca-fase"><h4>Troca de fase</h4>' +
-    '<p>Ative agora ou programe uma data. A ' + NOME_MODO[modo] + ' começa no primeiro horário de luz (' + inicio + ') desse dia, e a contagem de dias recomeça.</p>';
+  let html = '<div class="troca-fase"><h4>Trocar para ' + NOME_MODO[modo] + '</h4>' +
+    '<p>Começa às ' + inicio + ' do dia escolhido.</p>';
   if (prog) {
     const ts = String(prog.executar_em);
     html += '<div class="troca-programada"><span>Programada para <strong>' + ts.substring(8, 10) + '/' + ts.substring(5, 7) + ' às ' + ts.substring(11, 16) + '</strong></span>' +
@@ -2132,7 +3194,6 @@ function renderizarTimerCard(modo) {
       '<div class="timer-badges">' + (ativo ? '<span class="pill pill-ok">Fase ativa</span>' : '<span class="pill pill-inativa">Inativa</span>') +
         '<span class="badge-fixo"><svg data-lucide="lock"></svg>' + horasLuz + 'h luz / ' + (24 - horasLuz) + 'h escuro</span></div>' +
     '</div>' +
-    '<p class="timer-sub">Dura&ccedil;&atilde;o fixa de ' + horasLuz + '/' + (24 - horasLuz) + ' horas. Escolha s&oacute; a hora em que a luz acende; o apagar &eacute; calculado.</p>' +
     '<div class="linha-tempo" data-p="linha"></div>' +
     '<div class="linha-tempo-escala"><span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>24h</span></div>' +
     '<div class="timer-campos">' +
@@ -2145,10 +3206,7 @@ function renderizarTimerCard(modo) {
       '<button type="button" data-ajuste="-60">&minus;1h</button><button type="button" data-ajuste="-15">&minus;15min</button>' +
       '<button type="button" data-ajuste="15">+15min</button><button type="button" data-ajuste="60">+1h</button>' +
     '</div>' +
-    '<div class="timer-resumo">' +
-      '<div>Luz<strong>' + horasLuz + 'h</strong></div><div>Escuro<strong>' + (24 - horasLuz) + 'h</strong></div>' +
-      '<div>' + (ativo ? 'Agora' : 'Se ativada agora') + '<strong data-p="agora">--</strong></div>' +
-    '</div>' +
+    '<div class="timer-agora"><svg data-lucide="lightbulb"></svg>' + (ativo ? 'Agora a luz est&aacute;' : 'Se ativada agora, a luz ficaria') + ' <strong data-p="agora">--</strong></div>' +
     '<div class="timer-acoes">' +
       '<button type="button" class="btn btn-primario" data-acao="salvar"><svg data-lucide="save"></svg>Salvar timer</button>' +
       '<button type="button" class="btn btn-sec" data-acao="descartar">Descartar</button>' +
@@ -2188,7 +3246,7 @@ function atualizarStatusFotoperiodo() {
   const faseEl = document.getElementById('autoFaseAtiva');
   if (!faseEl) return;
   faseEl.textContent = NOME_MODO[modo] + ' (' + HORAS_LUZ_POR_MODO[modo] + '/' + (24 - HORAS_LUZ_POR_MODO[modo]) + ')';
-  document.getElementById('autoFaseSub').textContent = CICLO && (CICLO.fase_pedida || CICLO.fase) === modo && CICLO.dia ? 'Dia ' + CICLO.dia + ' do ciclo' : 'Dia do ciclo indisponível';
+  document.getElementById('autoFaseSub').textContent = CICLO && (CICLO.fase_pedida || CICLO.fase) === modo && CICLO.dia ? 'Dia ' + CICLO.dia + ' do ciclo' : 'dia do ciclo indisponível';
 
   const est = estadoEDuracaoLuz(modo);
   const manual = ultimoLuzEstado !== 'auto';
@@ -2333,6 +3391,7 @@ const pluginFaixasVpd = {
 })();
 
 function montarGraficoVpd(linhas, periodo) {
+  linhas = umaPorMinuto(linhas);
   const labels = linhas.map(l => formatarRotuloTempo(l, periodo));
   const valores = linhas.map(l => (l.vpd === null || l.vpd === undefined) ? null : Number(l.vpd));
   const maxDado = valores.reduce((m, v) => (v !== null && v > m ? v : m), 0);
@@ -2387,13 +3446,14 @@ function aplicarConfiguracoes() {
   document.title = nome + ' — Painel';
 
   const soloMin = Number(CONFIG.solo_ideal_min), soloMax = Number(CONFIG.solo_ideal_max);
-  document.getElementById('soloLabelFaixa').textContent = 'Umidade do solo (ideal entre ' + soloMin + '% e ' + soloMax + '%)';
+  document.getElementById('soloLabelFaixa').textContent = 'ideal ' + soloMin + '–' + soloMax + '%';
   const trilho = document.querySelector('.barra-trilho.solo');
   if (trilho) {
     const a = Math.max(0, soloMin - 2), b = Math.min(100, soloMax + 2);
     trilho.style.background = 'linear-gradient(to right, #223a4a 0%, #223a4a ' + a + '%, var(--azul) ' + soloMin + '%, var(--azul) ' + soloMax + '%, #223a4a ' + b + '%, #223a4a 100%)';
   }
   if (ultimaLeitura) { atualizarSoloBarra(ultimaLeitura.solo_percentual); atualizarAguaBarra(ultimaLeitura); aplicarAlertasCards(ultimaLeitura); }
+  renderizarInicio(); // faixas de temperatura, umidade, VPD, solo e caixa podem ter mudado
 
   atualizarPillsModo();
   if (!formConfigSujo()) preencherFormConfig();
@@ -2407,40 +3467,22 @@ function aplicarConfiguracoes() {
   if (abaAtual === 'fotoperiodo') renderizarFotoperiodo();
 }
 
-// Legenda dos cards: faixa ok, alerta, ambiente externo e solo.
+// Legenda dos cards externos: comparação com o ambiente interno (decide se ventilar ajuda ou atrapalha).
 function aplicarAlertasCards(leitura) {
-  const legenda = (idValor, idLeg, texto, alerta) => {
-    document.getElementById(idValor).closest('.card').classList.toggle('alerta', !!alerta);
-    document.getElementById(idLeg).textContent = texto;
-  };
-  const num = v => (v === null || v === undefined) ? null : Number(v);
-  const t = num(leitura.temp_interna), u = num(leitura.umid_interna);
-  const tMin = Number(CONFIG.temp_alerta_min), tMax = Number(CONFIG.temp_alerta_max), uMin = Number(CONFIG.umid_alerta_min), uMax = Number(CONFIG.umid_alerta_max);
-  const faixaT = 'Faixa ok · ' + String(tMin).replace('.', ',') + '–' + String(tMax).replace('.', ',') + ' °C';
-  if (t === null) legenda('statTempInterna', 'legTempInterna', '', false);
-  else if (t < tMin) legenda('statTempInterna', 'legTempInterna', 'abaixo de ' + fmtTemp(tMin), true);
-  else if (t > tMax) legenda('statTempInterna', 'legTempInterna', 'acima de ' + fmtTemp(tMax), true);
-  else legenda('statTempInterna', 'legTempInterna', faixaT, false);
-  if (u === null) legenda('statUmidInterna', 'legUmidInterna', '', false);
-  else if (u < uMin) legenda('statUmidInterna', 'legUmidInterna', 'abaixo de ' + uMin + '%', true);
-  else if (u > uMax) legenda('statUmidInterna', 'legUmidInterna', 'acima de ' + uMax + '%', true);
-  else legenda('statUmidInterna', 'legUmidInterna', 'Faixa ok · ' + uMin + '–' + uMax + '%', false);
-
-  // Solo: sensor sem leitura tem prioridade sobre seco/encharcado.
-  const icone = document.getElementById('soloIcone');
-  const iconeDesejado = soloSemLeitura ? 'alert-triangle' : 'sprout';
-  if (icone.dataset.icone !== iconeDesejado) {
-    icone.dataset.icone = iconeDesejado;
-    icone.innerHTML = '<svg data-lucide="' + iconeDesejado + '" style="width:16px;height:16px;"></svg>';
-    if (window.lucide) lucide.createIcons();
+  const num = v => (v === null || v === undefined || v === '') ? null : Number(v);
+  const tE = num(leitura.temp_externa), tI = num(leitura.temp_interna), uE = num(leitura.umid_externa), uI = num(leitura.umid_interna);
+  const legT = document.getElementById('legTempExterna'), legU = document.getElementById('legUmidExterna');
+  if (!legT || !legU) return;
+  if (tE === null || tI === null) legT.textContent = '';
+  else {
+    const d = tE - tI;
+    legT.textContent = (Math.abs(d) < 0.1 ? 'igual ao de dentro' : brN(Math.abs(d), 1) + ' °C ' + (d < 0 ? 'mais frio' : 'mais quente') + ' que dentro');
   }
-  const s = num(leitura.solo_percentual);
-  const sMin = Number(CONFIG.solo_ideal_min), sMax = Number(CONFIG.solo_ideal_max);
-  if (soloSemLeitura) legenda('statSolo', 'legSolo', 'Sensor sem leitura', true);
-  else if (s === null) legenda('statSolo', 'legSolo', '', false);
-  else if (s < sMin) legenda('statSolo', 'legSolo', 'Seco · ideal ' + sMin + '–' + sMax + '%', true);
-  else if (s > sMax) legenda('statSolo', 'legSolo', 'Encharcado · ideal ' + sMin + '–' + sMax + '%', true);
-  else legenda('statSolo', 'legSolo', 'Ideal · ' + sMin + '–' + sMax + '%', false);
+  if (uE === null || uI === null) legU.textContent = '';
+  else {
+    const d = Math.round(uE - uI);
+    legU.textContent = (d === 0 ? 'igual ao de dentro' : Math.abs(d) + '% ' + (d > 0 ? 'mais úmido' : 'mais seco') + ' que dentro');
+  }
 }
 
 const formConfig = document.getElementById('formConfig');
@@ -2734,12 +3776,11 @@ function renderizarStatus() {
     document.getElementById('avisoOfflineTexto').textContent = 'Última leitura às ' + horaDe(STATUS.ultima_leitura) +
       '. Verifique a energia e o Wi-Fi do dispositivo. Os valores abaixo são os últimos recebidos.' +
       (STATUS.aviso_offline_em ? ' Você recebeu um aviso no Telegram às ' + horaDe(STATUS.aviso_offline_em) + '.' : '');
-    ['legTempInterna', 'legUmidInterna', 'legTempExterna', 'legUmidExterna'].forEach(id => {
+    ['legTempExterna', 'legUmidExterna'].forEach(id => {
       document.getElementById(id).textContent = 'às ' + horaDe(STATUS.ultima_leitura);
     });
   } else if (mudou && ultimaLeitura) {
     aplicarAlertasCards(ultimaLeitura);
-    ['legTempExterna', 'legUmidExterna'].forEach(id => { document.getElementById(id).textContent = 'Ambiente externo'; });
   }
 
   // Página Dispositivo
@@ -2755,11 +3796,16 @@ function renderizarStatus() {
   const segContato = d.segundos_desde_contato !== null && d.segundos_desde_contato !== undefined
     ? Number(d.segundos_desde_contato) + Math.round((Date.now() - statusRecebidoEm) / 1000) : seg;
   document.getElementById('dispContato').textContent = segContato === null ? '--' : 'há ' + textoHa(segContato);
-  document.getElementById('dispSinal').textContent = qualidadeSinal(d.wifi_rssi === null || d.wifi_rssi === undefined ? null : Number(d.wifi_rssi));
+  const rssi = d.wifi_rssi === null || d.wifi_rssi === undefined ? null : Number(d.wifi_rssi);
+  document.getElementById('dispSinal').textContent = qualidadeSinal(rssi);
+  const barras = document.getElementById('dispSinalBarras');
+  if (barras) {
+    const n = rssi === null ? 0 : rssi >= -55 ? 4 : rssi >= -67 ? 3 : rssi >= -75 ? 2 : 1;
+    barras.className = 'sinal-barras n' + n + (n === 1 ? ' fraco' : '');
+  }
   document.getElementById('dispUptime').textContent = formatarUptime(d.uptime_seg === null || d.uptime_seg === undefined ? null : Number(d.uptime_seg) + (off ? 0 : Math.round((Date.now() - statusRecebidoEm) / 1000)));
-  document.getElementById('dispRodape').textContent = (d.firmware_versao ? '' : 'Firmware antigo: versão, sinal e tempo ligado aparecem após atualizar o ESP32. ') +
-    'Enviando leituras a cada 1 min' + (aoVivoRecente() ? ' · estado ao vivo a cada 5 s' : '') + ' · ' +
-    Number(STATUS.leituras_24h).toLocaleString('pt-BR') + ' recebidas nas últimas 24h';
+  document.getElementById('dispRodape').textContent = (d.firmware_versao ? '' : 'Firmware antigo: atualize o ESP32 para ver versão, sinal e tempo ligado. ') +
+    Number(STATUS.leituras_24h).toLocaleString('pt-BR') + ' leituras em 24 h (1 a cada ' + (intervaloLeiturasMs() < 45000 ? Math.round(intervaloLeiturasMs() / 1000) + ' s' : 'min') + ')' + (aoVivoRecente() ? ' · ao vivo a cada 5 s' : '');
 }
 
 function atualizarSeloFase() {
@@ -2839,6 +3885,7 @@ async function atualizarLeve() {
     const idEvento = Number(d.ultimo_id_evento) || 0;
     if (ultimoIdEvento !== null && idEvento !== ultimoIdEvento) {
       try { await carregarRodaEventos(); } catch (e) { erros.push('roda de eventos: ' + e.message); }
+      try { await carregarResumoInicio(); } catch (e) { erros.push('início: ' + e.message); }
       if (abaAtual === 'dispositivo') { try { await carregarDispositivo(); } catch (e) { erros.push('dispositivo: ' + e.message); } }
     }
     ultimoIdEvento = idEvento;
@@ -2865,6 +3912,7 @@ async function atualizarTudo() {
     const listaRoda = document.getElementById('rrLista');
     if (listaRoda) listaRoda.innerHTML = '<div class="rr-vazio">erro ao carregar eventos (' + escapeHtml(e.message) + ')</div>';
   }
+  try { await carregarResumoInicio(); } catch (e) { erros.push('início: ' + e.message); }
   ultimaAtualizacaoEm = Date.now();
   ultimoErroAtualizacao = erros.join(' | ');
   if (ultimaLeitura) atualizarVPD(ultimaLeitura.temp_interna, ultimaLeitura.umid_interna);
@@ -2966,7 +4014,7 @@ function renderizarDispositivo() {
   document.getElementById('tokAcoes').hidden = !admin;
   document.getElementById('btnVincGerar').hidden = !admin;
   document.getElementById('tokAviso').textContent = admin
-    ? 'Ao gerar um novo token ou revogar o atual, o ESP32 para de enviar dados até ser configurado com o novo código.'
+    ? 'Gerar ou revogar desconecta o ESP32 até ele receber o novo token.'
     : 'Só administradores podem gerar ou revogar o token.';
 
   const box = document.getElementById('vincCodigo');
@@ -3159,3 +4207,13 @@ document.getElementById('grupoNotif').addEventListener('click', async ev => {
   carregarNotificacoes().catch(e => { console.warn('notificacoes:', e.message); });
   atualizarTudo();
 })();
+
+/* ==================== Atalhos de seção e ajuda recolhível ==================== */
+// Os atalhos rolam até o bloco; o hash da URL continua sendo o da aba.
+document.addEventListener('click', ev => {
+  const a = ev.target.closest('.hist-atalhos a, .cfg-atalhos a');
+  if (!a) return;
+  ev.preventDefault();
+  const alvo = document.getElementById(a.getAttribute('href').slice(1));
+  if (alvo) alvo.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+});

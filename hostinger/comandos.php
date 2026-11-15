@@ -73,6 +73,12 @@ try {
          FROM comandos_sistema WHERE tipo = 'clima_vpd' ORDER BY id DESC LIMIT 1"
     )->fetch() ?: null;
 
+    // Aquecedor noturno confirmado pelo ESP32 (firmware 2.10.0; último registro, fora do LIMIT).
+    $aquecedorNoturno = db()->query(
+        "SELECT valor, origem, COALESCE(dispositivo_timestamp, criado_em) AS quando
+         FROM comandos_sistema WHERE tipo = 'aquecedor_noturno' ORDER BY id DESC LIMIT 1"
+    )->fetch() ?: null;
+
     // Automações antigas (firmware 2.5), só para o histórico.
     $automacoes = [];
     $stmtAuto = db()->query(
@@ -94,6 +100,7 @@ try {
         'reles' => (object) $reles,
         'ultimo_acesso' => $ultimoAcesso,
         'clima' => $clima,
+        'aquecedor_noturno' => $aquecedorNoturno,
         'automacoes' => (object) $automacoes,
     ]);
 } catch (Throwable $e) {

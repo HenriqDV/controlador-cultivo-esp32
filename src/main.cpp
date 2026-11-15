@@ -23,7 +23,8 @@
 //
 //  NVRAM do RTC: bytes 0-7 relés/modo/override da luz, 8-12 horários de luz.
 //  Cópia de tudo isso na flash (NVS "estado"), que não depende da bateria do RTC.
-//  NVS "clima": clima por VPD (fase, faixa de VPD e travas do aquecedor/umidificador).
+//  NVS "clima": clima por VPD (fase, faixa de VPD e travas do aquecedor/umidificador)
+//               e aquecedor noturno (chave "aq_not").
 //
 //  CALIBRAR NO HARDWARE: SOLO_MV_SECO/SOLO_MV_UMIDO, AGUA_SENSOR_ATE_FUNDO_CM, RELE_ATIVO_EM_BAIXO.
 // =============================================================================
@@ -37,7 +38,7 @@
 #define WOKWI_SIMULATION 0
 
 // Versão enviada ao painel (tela Dispositivo). Atualize a cada nova gravação.
-#define FIRMWARE_VERSAO "2.9.0"
+#define FIRMWARE_VERSAO "2.12.2"
 #if !WOKWI_SIMULATION
 #include <Adafruit_SHT4x.h>
 #endif
@@ -69,7 +70,7 @@ String cfgSsid, cfgSenha, cfgUrl, cfgToken, cfgVinculo;
 unsigned long ultimaTentativaVinculoEm = 0;
 
 // Envio de leitura pra Hostinger (independente do histórico local).
-const unsigned long INTERVALO_ENVIO_LEITURA_HOSTINGER_MS = 60UL * 1000UL; // 1 minuto
+const unsigned long INTERVALO_ENVIO_LEITURA_HOSTINGER_MS = 20UL * 1000UL; // 20 segundos (gravado no banco)
 unsigned long ultimoEnvioLeituraHostingerEm = 0;
 
 const long GMT_OFFSET_SEC = -3 * 3600;
@@ -441,6 +442,8 @@ void atualizarLEDVPD();
 void aplicarComandoRele(int indiceRele, int valor);
 void acionarRele(int numero, bool ligado);
 void pausarClimaDoRele(int indiceRele, const char* origem);
+bool luzDeveEstarLigada(const DateTime& now);
+bool horaConfiavel();
 void definirModoCultivoRemoto(ModoCultivo novoModo);
 void definirModoControleLuzRemoto(ModoControleLuz novoModo);
 void liberarAcessoRemoto();
@@ -1611,7 +1614,7 @@ void definirDuracaoLuzRemoto(int minutos) {
 //   fica desligado até o VPD voltar ao ponto de ligar.
 //   A 10% de cada borda (1,56 / 1,24) age na hora, sem confirmação nem tempo mínimo:
 //   perto do máximo liga imediatamente (prioridade); perto do mínimo só espera 1 min desde a última troca.
-// O aquecedor NÃO participa (é um relé comum, só manual).
+// O aquecedor NÃO participa deste controle (tem a automação própria "aquecedor noturno", mais abaixo).
 // Trava: o umidificador nunca passa de travaUmid % (travaTemp segue no comando só por compatibilidade).
 //
 // Contra o liga/desliga curto (névoa do umidificador batendo no sensor, estufa pequena):
@@ -1739,8 +1742,11 @@ void definirClimaRemoto(const String& valor) {
   atualizarOLED = true;
 }
 
-// Comando manual no umidificador: o clima pausa (o comando manual vale). O aquecedor não pausa nada.
+// Comando manual no umidificador: o clima pausa (o comando manual vale).
+// Comando manual no aquecedor: o aquecedor noturno pausa.
+void pausarAquecedorNoturno(const char* origem);
 void pausarClimaDoRele(int indiceRele, const char* origem) {
+  if (indiceRele == RELE_AQUECEDOR) { pausarAquecedorNoturno(origem); return; }
   if (!clima.ativa || indiceRele != RELE_UMIDIFICADOR) return;
   clima.ativa = false;
   salvarClima();
@@ -1834,6 +1840,163 @@ void acompanharMudancaExterna(ControleClima& ctl) {
   }
 }
 
+// ---------------- AQUECEDOR NOTURNO ----------------
+// Roda no próprio ESP32 (funciona sem internet). Vale só com a luz apagada PELO TIMER
+// (um desligamento manual da luz durante o dia não conta como noite):
+//   - quando a luz apaga, liga o aquecedor;
+//   - desliga quando o VPD (média de 60 s) chega no ponto de desligar da fase do clima;
+//   - volta a ligar se o VPD ficar abaixo do ponto de ligar por 5 min seguidos, e desliga
+//     de novo no mesmo ponto de desligar;
+//     Pontos (sempre relativos à faixa da fase): liga abaixo do mínimo, desliga em máximo - 0,20.
+//       muda       0,40-0,80: liga abaixo de 0,40   desliga em 0,60
+//       vegetação  0,80-1,20: liga abaixo de 0,80   desliga em 1,00
+//       floração   1,20-1,60: liga abaixo de 1,20   desliga em 1,40
+//   - quando a luz acende, desliga.
+// Segurança (age na hora): sem leitura do sensor, ou temperatura na trava (travaTemp do clima).
+// Depois da trava só volta a ligar 1 °C abaixo dela.
+// Usa a faixa e a travaTemp do comando "clima_vpd", mesmo com o clima do umidificador desativado.
+// Comando do painel: tipo "aquecedor_noturno", alvo "aquecedor", valor "1" ou "0".
+// Um comando manual no aquecedor (painel ou OLED) pausa a automação.
+// Cada ação manda "clima_leitura" (alvo Aquecedor) com a leitura e o motivo:
+//   luz_apagou, alvo_noturno, abaixo_min, luz_acendeu, trava_temp, sem_sensor.
+bool aqNoturnoAtivo = false;
+const float AQ_NOTURNO_MARGEM_KPA = 0.20f;                      // desliga em máximo - 0,20
+const unsigned long AQ_NOTURNO_ABAIXO_MS = 5UL * 60UL * 1000UL; // abaixo do ponto de ligar por 5 min -> religa
+const float AQ_NOTURNO_FOLGA_TRAVA_C = 1.0f;                    // só religa 1 °C abaixo da trava
+bool aqNoiteConhecida = false;    // já viu o estado da luz pelo menos uma vez desde que foi ativado
+bool aqNoiteAnterior = false;
+bool aqLigarAoAnoitecer = false;  // a luz acabou de apagar (ou a automação foi ativada à noite)
+unsigned long aqAbaixoDesde = 0;  // desde quando o VPD está abaixo do ponto de ligar (0 = não está)
+
+void registrarEventoAquecedorNoturno(const char* origem) {
+  enfileirarComandoHostinger("aquecedor_noturno", "aquecedor", aqNoturnoAtivo ? "1" : "0", origem);
+}
+
+void salvarAquecedorNoturno() {
+  Preferences p;
+  p.begin("clima", false);
+  p.putBool("aq_not", aqNoturnoAtivo);
+  p.end();
+}
+
+void restaurarAquecedorNoturno() {
+  Preferences p;
+  p.begin("clima", true);
+  aqNoturnoAtivo = p.getBool("aq_not", false);
+  p.end();
+  Serial.printf("Aquecedor noturno: %s\n", aqNoturnoAtivo ? "ativo" : "desativado");
+}
+
+void reiniciarAquecedorNoturno() {
+  aqNoiteConhecida = false;
+  aqLigarAoAnoitecer = false;
+  aqAbaixoDesde = 0;
+}
+
+void definirAquecedorNoturnoRemoto(const String& valor) {
+  if (valor != "1" && valor != "0") {
+    Serial.println("Hostinger: aquecedor_noturno invalido: " + valor);
+    return;
+  }
+  bool novo = valor == "1";
+  bool mudou = novo != aqNoturnoAtivo;
+  aqNoturnoAtivo = novo;
+  if (mudou) {
+    reiniciarAquecedorNoturno();
+    aqLigarAoAnoitecer = novo;  // ativado durante a noite: já começa aquecendo, como se a luz tivesse apagado agora
+    salvarAquecedorNoturno();
+  }
+  registrarEventoAquecedorNoturno("web");
+  // Ao desativar, o relé fica como está; o usuário decide pelo interruptor.
+  atualizarOLED = true;
+}
+
+void pausarAquecedorNoturno(const char* origem) {
+  if (!aqNoturnoAtivo) return;
+  aqNoturnoAtivo = false;
+  reiniciarAquecedorNoturno();
+  salvarAquecedorNoturno();
+  registrarEventoAquecedorNoturno(strcmp(origem, "manual") == 0 ? "pausa_oled" : "pausa_painel");
+  Serial.println("Aquecedor noturno pausado por comando manual");
+}
+
+void acaoAquecedorNoturno(bool ligar, const char* motivo, float vpd, float temp, float umid) {
+  if (estadoReles[RELE_AQUECEDOR] == ligar) return;
+  String leitura = String(ligar ? 1 : 0) + ";" + (isnan(vpd) ? String("") : String(vpd, 2)) + ";" +
+                   (isnan(temp) ? String("") : String(temp, 1)) + ";" + (isnan(umid) ? String("") : String(umid, 0)) + ";" + motivo;
+  enfileirarComandoHostinger("clima_leitura", nomeReleControle(RELE_AQUECEDOR), leitura, "automacao");
+  acionarRele(RELE_AQUECEDOR, ligar);
+  registrarEventoRele(RELE_AQUECEDOR, ligar, "automacao");
+  salvarEstadoNaMemoria();
+  aqAbaixoDesde = 0;
+  atualizarOLED = true;
+  Serial.printf("Aquecedor noturno: %s (%s)\n", ligar ? "ligou" : "desligou", motivo);
+}
+
+// Chamado a cada 5 s por atualizarClima(), com a média de 60 s já calculada.
+void atualizarAquecedorNoturno(float temp, float umid, int validas) {
+  if (!aqNoturnoAtivo) return;
+  if (!horaConfiavel()) return;  // sem a hora certa não dá para saber se é noite
+
+  bool noite = !luzDeveEstarLigada(obterAgora());
+  if (aqNoiteConhecida && noite && !aqNoiteAnterior) aqLigarAoAnoitecer = true;  // a luz acabou de apagar
+  aqNoiteAnterior = noite;
+  aqNoiteConhecida = true;
+  bool ligado = estadoReles[RELE_AQUECEDOR];
+
+  // Dia: o aquecedor noturno não age; se ficou ligado, desliga.
+  if (!noite) {
+    aqLigarAoAnoitecer = false;
+    aqAbaixoDesde = 0;
+    if (ligado) acaoAquecedorNoturno(false, "luz_acendeu", NAN, temp, umid);
+    return;
+  }
+
+  // Sem leitura do sensor: por segurança desliga na hora e não liga.
+  if (isnan(tempAtual) || isnan(umidAtual) || validas == 0) {
+    aqAbaixoDesde = 0;
+    if (ligado) acaoAquecedorNoturno(false, "sem_sensor", NAN, NAN, NAN);
+    return;
+  }
+  if (validas < AMOSTRAS_MINIMAS_CLIMA) return;  // média ainda se formando (primeiros 30 s)
+
+  float vpd = calcularVPD(temp, umid);
+  // Pontos da fase do clima: liga abaixo do mínimo da faixa e desliga em máximo - 0,20.
+  float pontoLigar = clima.min;
+  float alvo = clima.max - AQ_NOTURNO_MARGEM_KPA;
+  if (alvo <= pontoLigar) alvo = (clima.min + clima.max) / 2.0f;  // faixa estreita demais para a margem
+
+  // Trava de temperatura (média ou leitura instantânea): desliga na hora.
+  if (temp >= clima.travaTemp || tempAtual >= clima.travaTemp) {
+    aqLigarAoAnoitecer = false;
+    aqAbaixoDesde = 0;
+    if (ligado) acaoAquecedorNoturno(false, "trava_temp", vpd, temp, umid);
+    return;
+  }
+
+  if (ligado) {
+    aqLigarAoAnoitecer = false;
+    if (vpd >= alvo) acaoAquecedorNoturno(false, "alvo_noturno", vpd, temp, umid);
+    return;
+  }
+
+  bool podeLigar = temp < clima.travaTemp - AQ_NOTURNO_FOLGA_TRAVA_C && tempAtual < clima.travaTemp - AQ_NOTURNO_FOLGA_TRAVA_C;
+
+  // A luz apagou: liga (a não ser que o VPD já esteja no alvo).
+  if (aqLigarAoAnoitecer) {
+    aqLigarAoAnoitecer = false;
+    if (vpd < alvo && podeLigar) { acaoAquecedorNoturno(true, "luz_apagou", vpd, temp, umid); return; }
+  }
+
+  // Desligado durante a noite: religa se o VPD ficar abaixo do ponto de ligar por 5 min seguidos.
+  if (vpd < pontoLigar) {
+    if (aqAbaixoDesde == 0) aqAbaixoDesde = millis() | 1UL;  // nunca 0, que significa "não está abaixo"
+    else if (millis() - aqAbaixoDesde >= AQ_NOTURNO_ABAIXO_MS && podeLigar) acaoAquecedorNoturno(true, "abaixo_min", vpd, temp, umid);
+  } else {
+    aqAbaixoDesde = 0;
+  }
+}
+
 void atualizarClima() {
   if (ultimaAvaliacaoClimaEm != 0 && millis() - ultimaAvaliacaoClimaEm < INTERVALO_CLIMA_MS) return;
   ultimaAvaliacaoClimaEm = millis();
@@ -1842,6 +2005,7 @@ void atualizarClima() {
   int validas;
   amostrarClima(temp, umid, validas);  // amostra sempre, mesmo desativado, para a média estar pronta
   acompanharMudancaExterna(ctlUmidificador);
+  atualizarAquecedorNoturno(temp, umid, validas);  // independe do clima do umidificador
   if (!clima.ativa) return;
 
   // Sem leitura do sensor: por segurança desliga na hora.
@@ -2371,6 +2535,7 @@ String montarJsonEstado() {
   json += "\"agua_percentual\":" + (isnan(aguaPercentual) ? String("null") : String((int)roundf(aguaPercentual))) + ",";
   json += "\"modo_cultivo\":\"" + String(modoAtual == FLORACAO ? "floracao" : "vegetativo") + "\",";
   json += "\"luz_controle\":\"" + String(modoControleLuz == LUZ_AUTOMATICA ? "auto" : (modoControleLuz == LUZ_MANUAL_LIGADA ? "ligada" : "desligada")) + "\",";
+  json += "\"aquecedor_noturno\":" + String(aqNoturnoAtivo ? 1 : 0) + ",";
   json += "\"reles\":{";
   for (int i = 0; i < TOTAL_RELES; i++) {
     if (i) json += ",";
@@ -2454,7 +2619,7 @@ void atualizarEnvioLeituraRede() {
     payload = leituraParaEnviar;
     temLeituraParaEnviar = false;
   }
-  // Uma leitura perdida não é reenviada: a próxima chega em 1 min (como antes).
+  // Uma leitura perdida não é reenviada: a próxima chega em 20 s.
   enviarJsonHostinger("/registrar_leitura.php", payload);
 }
 
@@ -2599,6 +2764,8 @@ void aplicarComandoRemotoWeb(const String& tipo, const String& alvo, const Strin
     definirDuracaoLuzRemoto(valor.toInt());
   } else if (tipo == "clima_vpd") {
     definirClimaRemoto(valor);
+  } else if (tipo == "aquecedor_noturno") {
+    definirAquecedorNoturnoRemoto(valor);
   } else if (tipo == "fotoperiodo") {
     // valor = "HH:MM" (início da luz); a duração vem do modo.
     int h = -1, m = -1;
@@ -3221,6 +3388,7 @@ void setup() {
   // Decide a luz já, sem esperar Wi-Fi e NTP (antes ela ficava apagada até ~25 s).
   controlarLuz(obterAgora());
   restaurarClima();
+  restaurarAquecedorNoturno();
   // Informa ao dashboard a fase e os horários de luz em uso. Se a memória do relógio tiver
   // zerado (bateria do RTC fraca ou ausente), o servidor vê a diferença e reenvia o que
   // está salvo no painel.
@@ -3229,6 +3397,7 @@ void setup() {
   registrarEventoFotoperiodo(FLORACAO, "boot");
   registrarEventoDuracaoLuz("boot");
   registrarEventoClima("boot");
+  registrarEventoAquecedorNoturno("boot");
   registrarEstadoInicialReles();   // estado real dos relés depois do reinício
 
   carregarConfigRede();
@@ -3321,6 +3490,6 @@ void loop() {
   DateTime now = obterAgora(); // uma única leitura de "agora" para o resto do ciclo
 
   controlarLuz(now);   // aplica fotoperíodo/override no relé de luz
-  atualizarClima();    // aquecedor e umidificador pelo VPD da fase escolhida
+  atualizarClima();    // umidificador pelo VPD da fase escolhida + aquecedor noturno
   renderizarOLED(now);  // só efetivamente desenha se atualizarOLED == true
 }

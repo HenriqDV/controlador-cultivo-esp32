@@ -6,7 +6,7 @@ Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**,
 
 ![Painel do Smart Demetra no computador e no celular](docs/img/capa.png)
 
-> **Versão atual:** painel v2 · firmware **v2.9.0** · banco com migrações automáticas até a `009`.
+> **Versão atual:** painel v2 · firmware **v2.11.0** · banco com migrações automáticas até a `009`.
 
 ---
 
@@ -31,7 +31,7 @@ Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**,
 
 ![Arquitetura: navegador, Hostinger e ESP32](docs/img/arquitetura.png)
 
-1. O **ESP32** lê os sensores e envia uma leitura por minuto para o servidor na **Hostinger**, identificado pelo seu **token do hardware**. Essa é a leitura que fica no histórico.
+1. O **ESP32** lê os sensores e envia uma leitura a cada 20 segundos para o servidor na **Hostinger**, identificado pelo seu **token do hardware**. Essa é a leitura que fica no histórico.
 2. A cada **5 segundos** o ESP32 também manda o **estado atual** (leituras, fase, luz e relés). O servidor guarda só o último, e o painel mostra ao vivo.
 3. No **painel**, cada ação grava um comando numa **fila** no banco de dados.
 4. O ESP32 consulta essa fila a cada **4 segundos**, aplica o comando e confirma de volta, e o painel mostra se a confirmação chegou.
@@ -177,9 +177,25 @@ Roda no próprio ESP32, então continua funcionando sem internet. Você escolhe 
 
 - **Contra o liga/desliga curto:** usa a média de 1 minuto sem os extremos (picos de névoa no sensor não contam), espera a condição se manter por 30 s e respeita o tempo mínimo ligado e desligado (padrão 3 min).
 - **Segurança:** a trava de umidade e a falta de leitura do sensor desligam o umidificador na hora.
-- **Só o umidificador age:** o aquecedor é um relé comum, só manual. Por isso o clima consegue **baixar** o VPD, mas não subir: se o ar ficar úmido demais por conta própria, o VPD pode ficar abaixo do mínimo.
+- **Só o umidificador age:** o aquecedor não participa deste controle (de dia é um relé manual; à noite tem a automação própria, abaixo). Por isso o clima consegue **baixar** o VPD, mas não subir: se o ar ficar úmido demais por conta própria, o VPD pode ficar abaixo do mínimo.
 - **Faixa estreita, mais ciclos:** numa faixa de 0,16 kPa (cerca de 5% de umidade), o umidificador liga e desliga com mais frequência para não sair dela.
 - Cada ação gera um evento `clima_leitura` com o VPD, a temperatura, a umidade e o motivo, que aparece no Relógio de eventos.
+
+### Aquecedor noturno (firmware 2.10.0)
+
+Automação separada, ligada pelo card **Aquecedor noturno** (Comandos). Também roda no ESP32 e vale só com a luz apagada **pelo timer** (apagar a luz à mão durante o dia não conta):
+
+| Quando | O que faz | Floração (1,20–1,60) |
+|---|---|---|
+| A luz apaga | Liga o aquecedor (se o VPD já não estiver no alvo) | — |
+| VPD chega em máximo − 0,20 kPa | Desliga | 1,40 |
+| VPD abaixo do mínimo por 10 min seguidos | Liga de novo, até o mesmo alvo | abaixo de 1,20 |
+| A luz acende | Desliga | — |
+
+- **Segurança:** desliga na hora ao chegar na trava de temperatura (`travaTemp` do clima, ajustável em "Faixa e travas de segurança"; só religa 1 °C abaixo) ou sem leitura do sensor. Sem hora confiável (RTC parado e sem NTP), não age.
+- Usa a faixa de VPD da fase escolhida no card do clima, mesmo com o clima do umidificador desativado, e a mesma média de 1 minuto.
+- Um comando manual no aquecedor (painel ou OLED) pausa a automação.
+- Motivos enviados em `clima_leitura` (alvo `Aquecedor`): `luz_apagou`, `alvo_noturno`, `abaixo_min`, `luz_acendeu`, `trava_temp`, `sem_sensor`.
 
 ---
 
@@ -248,7 +264,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 
 ```
 ├── src/
-│   ├── main.cpp                 # firmware (v2.9.0)
+│   ├── main.cpp                 # firmware (v2.11.0)
 │   └── secrets.example.h        # modelo de credenciais (copie para secrets.h)
 ├── hostinger/                   # painel + API (vai para o public_html)
 │   ├── index.php                # painel (todas as páginas)
@@ -307,6 +323,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 - `acesso`: liberar.
 - `fotoperiodo`: `HH:MM`, em passos de 15 min.
 - `clima_vpd`: `ativa;fase;min;max;travaTemp;travaUmid;minLigado;minDesligado` (fase: 0 muda, 1 vegetação, 2 floração; tempos em minutos). Exemplo: `1;2;1.20;1.60;28.0;60;3;3`. O formato antigo, sem os dois tempos, também é aceito. O `travaTemp` é mantido só por compatibilidade.
+- `aquecedor_noturno` (alvo `aquecedor`): `1` ativa, `0` desativa.
 
 **Token do ESP32:**
 - Enquanto nenhum token for gerado, vale a `API_KEY` do `config.php` (modo compatível).
@@ -364,7 +381,7 @@ Bancos de versões anteriores são atualizados sozinhos no primeiro acesso ao pa
 - **Atualização de firmware pelo painel (OTA):** não implementada. O firmware é gravado pelo cabo USB.
 - **"Esqueci a senha" por e-mail:** não existe. O administrador gera uma senha temporária.
 - **Irrigação automática:** não implementada. A irrigação é ligada manualmente (painel ou OLED) e só é bloqueada pela proteção da caixa d'água.
-- **Clima por VPD só baixa o VPD:** sem desumidificador nem aquecimento automático, ele não consegue subir o VPD quando o ar fica úmido demais.
+- **Clima por VPD só baixa o VPD:** de dia não há desumidificador nem aquecimento automático para subir o VPD quando o ar fica úmido demais. À noite, o aquecedor noturno cobre esse caso.
 </details>
 
 ---

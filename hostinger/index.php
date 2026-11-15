@@ -35,11 +35,11 @@ $ehAdmin = auth_eh_admin();
 
     <!-- ===================== ABA: INÍCIO ===================== -->
     <div class="aba ativa" id="aba-inicio">
-      <h1 class="titulo-aba">In&iacute;cio</h1>
-      <p class="subtitulo-aba" style="margin-bottom:12px;">Leituras do ambiente e do cultivo em tempo real.</p>
+      <h1 class="titulo-aba sem-sub">In&iacute;cio</h1>
       <div class="selos-status">
         <span class="selo-status" id="seloConexao"><i></i><span>verificando…</span></span>
         <span class="selo-status neutro" id="seloFase"><svg data-lucide="sprout"></svg><span>--</span></span>
+        <span class="selo-status neutro" id="seloLuz"><svg data-lucide="sun"></svg><span><span class="skeleton" id="luzContagem">--</span><span id="luzLegenda"></span></span></span>
       </div>
 
       <div class="aviso-offline" id="avisoOffline" hidden>
@@ -51,100 +51,177 @@ $ehAdmin = auth_eh_admin();
         </div>
       </div>
 
-      <div class="stats">
-        <div class="card">
-          <div class="card-topo"><span class="card-label">Temp. interna</span><div class="card-icone"><svg data-lucide="thermometer" style="width:16px;height:16px;"></svg></div></div>
-          <div class="card-valor skeleton" id="statTempInterna">--</div>
-          <div class="card-legenda" id="legTempInterna"></div>
+      <!-- O que pede atenção agora (desvios que duram 15 min ou mais) -->
+      <section class="ini-status" id="iniStatus" aria-live="polite">
+        <div class="ini-status-topo">
+          <span class="ini-status-icone" id="iniStatusIcone"><svg data-lucide="circle-check"></svg></span>
+          <h2 id="iniStatusTitulo">Verificando…</h2>
+          <span class="ini-status-ok" id="iniStatusOk"></span>
         </div>
-        <div class="card">
-          <div class="card-topo"><span class="card-label">Umid. interna</span><div class="card-icone"><svg data-lucide="droplet" style="width:16px;height:16px;"></svg></div></div>
-          <div class="card-valor skeleton" id="statUmidInterna">--</div>
-          <div class="card-legenda" id="legUmidInterna"></div>
+        <div class="ini-status-lista" id="iniStatusLista"></div>
+      </section>
+
+      <!-- Ambiente interno: últimas 6, 3 ou 1 hora, com luz e equipamentos no mesmo eixo -->
+      <section class="h6-card" id="hist6" aria-label="Ambiente interno nas &uacute;ltimas horas">
+        <div class="h6-topo">
+          <h2>Ambiente interno</h2>
+          <div class="periodo-botoes h6-janela" id="h6Janela" role="group" aria-label="Janela do gr&aacute;fico">
+            <button type="button" class="periodo-botao ativo" data-h6-horas="6" aria-pressed="true">6 h</button>
+            <button type="button" class="periodo-botao" data-h6-horas="3" aria-pressed="false">3 h</button>
+            <button type="button" class="periodo-botao" data-h6-horas="1" aria-pressed="false">1 h</button>
+          </div>
+          <div class="h6-legenda">
+            <span><i class="h6-leg-noite"></i>luz apagada</span>
+            <span><i class="h6-leg-faixa"></i>faixa ideal</span>
+          </div>
+          <a class="barra-link" href="#historico" data-ir-aba="historico">Hist&oacute;rico<svg data-lucide="arrow-right"></svg></a>
         </div>
-        <div class="card">
-          <div class="card-topo"><span class="card-label">Temp. externa</span><div class="card-icone"><svg data-lucide="thermometer" style="width:16px;height:16px;"></svg></div></div>
-          <div class="card-valor skeleton" id="statTempExterna">--</div>
-          <div class="card-legenda" id="legTempExterna">Ambiente externo</div>
+        <div class="h6-linhas" id="hist6Linhas">
+          <div class="h6-linha" data-h6="temp">
+            <div class="h6-info">
+              <span class="h6-rotulo"><i style="background:#4CAF50;"></i>Temperatura</span>
+              <div class="h6-valor-linha"><strong class="h6-valor skeleton" id="h6TempValor">--</strong><span class="h6-tend" id="h6TempTend"></span></div>
+              <small class="h6-sub" id="h6TempSub"></small>
+            </div>
+            <div class="h6-grafico"><canvas id="h6TempGrafico"></canvas></div>
+            <div class="h6-fora"><span>fora da faixa hoje</span><strong id="h6TempFora">--</strong></div>
+          </div>
+          <div class="h6-linha" data-h6="umid">
+            <div class="h6-info">
+              <span class="h6-rotulo"><i style="background:#7fa9c2;"></i>Umidade</span>
+              <div class="h6-valor-linha"><strong class="h6-valor skeleton" id="h6UmidValor">--</strong><span class="h6-tend" id="h6UmidTend"></span></div>
+              <small class="h6-sub" id="h6UmidSub"></small>
+            </div>
+            <div class="h6-grafico"><canvas id="h6UmidGrafico"></canvas></div>
+            <div class="h6-fora"><span>fora da faixa hoje</span><strong id="h6UmidFora">--</strong></div>
+          </div>
+          <div class="h6-linha" data-h6="vpd">
+            <div class="h6-info">
+              <span class="h6-rotulo"><i style="background:#eef1ee;"></i>VPD</span>
+              <div class="h6-valor-linha"><strong class="h6-valor skeleton" id="h6VpdValor">--</strong><span class="h6-tend" id="h6VpdTend"></span></div>
+              <small class="h6-sub" id="h6VpdSub"></small>
+            </div>
+            <div class="h6-grafico"><canvas id="h6VpdGrafico"></canvas></div>
+            <div class="h6-fora"><span>fora da faixa hoje</span><strong id="h6VpdFora">--</strong></div>
+          </div>
+          <div class="h6-equip" id="h6Equip"></div>
+          <div class="h6-eixo" id="hist6Eixo"><span></span><span></span><span></span><span></span></div>
         </div>
-        <div class="card">
-          <div class="card-topo"><span class="card-label">Umid. externa</span><div class="card-icone"><svg data-lucide="droplets" style="width:16px;height:16px;"></svg></div></div>
-          <div class="card-valor skeleton" id="statUmidExterna">--</div>
-          <div class="card-legenda" id="legUmidExterna">Ambiente externo</div>
+        <p class="h6-vazio" id="hist6Vazio" hidden>Sem leituras nesse per&iacute;odo.</p>
+      </section>
+
+      <!-- Ambiente externo: uma faixa fina, logo abaixo do ambiente interno -->
+      <div class="ini-externo" aria-label="Ambiente externo">
+        <span class="ini-ext-titulo"><svg data-lucide="cloud-sun"></svg>Externo</span>
+        <div class="ini-ext">
+          <i class="ini-ponto" style="background:#e8c977;"></i>
+          <strong class="ini-ext-valor skeleton" id="statTempExterna">--</strong>
+          <small id="legTempExterna"></small>
         </div>
-        <div class="card esconder-offline">
-          <div class="card-topo"><span class="card-label">Solo</span><div class="card-icone" id="soloIcone"><svg data-lucide="sprout" style="width:16px;height:16px;"></svg></div></div>
-          <div class="card-valor skeleton" id="statSolo">--</div>
-          <div class="card-legenda" id="legSolo"></div>
-        </div>
-        <div class="card esconder-offline">
-          <div class="card-topo"><span class="card-label">Luz no ciclo</span><div class="card-icone"><svg data-lucide="lightbulb" style="width:16px;height:16px;"></svg></div></div>
-          <div class="card-valor skeleton" id="luzContagem">--</div>
-          <div class="card-legenda" id="luzLegenda"></div>
+        <div class="ini-ext">
+          <i class="ini-ponto" style="background:#b58bc9;"></i>
+          <strong class="ini-ext-valor skeleton" id="statUmidExterna">--</strong>
+          <small id="legUmidExterna"></small>
         </div>
       </div>
 
-      <div class="auto-nota so-offline" id="notaOffline">
-        <svg data-lucide="info"></svg>
-        <div>O timer de luz continua rodando no rel&oacute;gio do ESP32 mesmo sem conex&atilde;o.</div>
+      <!-- Recursos: solo e caixa d'água, com projeção -->
+      <div class="ini-grade2">
+        <section class="ini-card" aria-label="Solo">
+          <div class="ini-card-topo">
+            <span class="card-icone"><svg data-lucide="sprout" style="width:16px;height:16px;"></svg></span>
+            <h2>Solo</h2>
+            <span class="ini-card-extra" id="soloLabelFaixa">ideal 50&ndash;60%</span>
+          </div>
+          <div class="ini-valor-linha"><span class="ini-valor skeleton" id="soloValor">-- %</span><span class="pill pill-neutro" id="soloStatusPill">--</span></div>
+          <div class="barra-trilho solo"><div class="barra-marcador" id="soloMarcador"></div></div>
+          <div class="barra-rodape"><div class="barra-escala"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div></div>
+          <p class="barra-nota" id="soloNota" hidden>O sensor de solo n&atilde;o respondeu nas &uacute;ltimas 3 leituras. Verifique o cabo e a alimenta&ccedil;&atilde;o do sensor capacitivo.</p>
+          <div class="ini-dados">
+            <div><span>&Uacute;ltima irriga&ccedil;&atilde;o</span><strong id="soloUltIrrig">--</strong></div>
+            <div><span>Ritmo</span><strong id="soloTaxa">--</strong></div>
+            <div><span id="soloPrevisaoRotulo">Chega ao m&iacute;nimo</span><strong id="soloPrevisao">--</strong></div>
+          </div>
+        </section>
+
+        <section class="ini-card" id="aguaCard" aria-label="Caixa d&apos;&aacute;gua">
+          <div class="ini-card-topo">
+            <span class="card-icone"><svg data-lucide="glass-water" style="width:16px;height:16px;"></svg></span>
+            <h2>Caixa d&apos;&aacute;gua</h2>
+            <a class="barra-link" href="#caixa" data-ir-aba="caixa">Detalhes<svg data-lucide="arrow-right"></svg></a>
+          </div>
+          <div class="ini-valor-linha"><span class="ini-valor skeleton" id="aguaValor">-- L</span><span class="pill pill-neutro" id="aguaStatusPill">--</span></div>
+          <div class="barra-trilho agua"><div class="agua-preenchimento" id="aguaPreenchimento"></div><div class="agua-limite" id="aguaLimite" title="Alerta de n&iacute;vel baixo"></div></div>
+          <div class="barra-rodape"><div class="barra-escala"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div></div>
+          <span class="agua-detalhe" id="aguaDetalhe"></span>
+          <p class="barra-nota" id="aguaNota" hidden>O sensor da caixa d&apos;&aacute;gua (HC-SR04) n&atilde;o respondeu nas &uacute;ltimas 3 leituras. Verifique a alimenta&ccedil;&atilde;o em 5 V e o divisor de tens&atilde;o no pino ECHO.</p>
+          <div class="ini-dados">
+            <div><span>Consumo</span><strong id="aguaConsumo">--</strong></div>
+            <div><span>Autonomia</span><strong id="aguaAutonomia">--</strong></div>
+            <div><span>Encher at&eacute;</span><strong id="aguaEncher">--</strong></div>
+          </div>
+        </section>
       </div>
 
-      <div class="barra-card">
-        <div class="barra-topo">
-          <span class="barra-titulo"><svg data-lucide="gauge"></svg>VPD (d&eacute;ficit de press&atilde;o de vapor)</span>
-          <span class="barra-valor skeleton" id="vpdValor">-- kPa</span>
-        </div>
-        <div class="barra-trilho vpd"><div class="barra-marcador" id="vpdMarcador"></div></div>
-        <div class="barra-rodape">
-          <div class="barra-escala"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0+</span></div>
-        </div>
-        <div class="barra-status"><span class="pill pill-neutro" id="vpdZonaPill">--</span><span class="barra-ideal" id="vpdIdeal"></span></div>
+      <!-- Resumo das últimas 24 horas -->
+      <div class="ini-grade2">
+        <section class="ini-card" aria-label="Luz acesa e apagada nas &uacute;ltimas 24 horas">
+          <div class="ini-card-topo">
+            <span class="card-icone ini-icone-ambar"><svg data-lucide="sun" style="width:16px;height:16px;"></svg></span>
+            <h2>Luz acesa &times; apagada &middot; 24h</h2>
+          </div>
+          <table class="ini-tabela">
+            <thead><tr><th scope="col">M&eacute;dia</th><th scope="col"><svg data-lucide="sun"></svg>Acesa</th><th scope="col"><svg data-lucide="moon"></svg>Apagada</th></tr></thead>
+            <tbody id="iniLuzTabela"><tr><td colspan="3" class="ini-vazio">carregando…</td></tr></tbody>
+          </table>
+          <div class="ini-dif"><span>Diferen&ccedil;a dia/noite (DIF)</span><strong id="iniDif">--</strong></div>
+          <small class="ini-nota" id="iniLuzFonte"></small>
+        </section>
+
+        <section class="ini-card" aria-label="Equipamentos nas &uacute;ltimas 24 horas">
+          <div class="ini-card-topo">
+            <span class="card-icone"><svg data-lucide="plug-zap" style="width:16px;height:16px;"></svg></span>
+            <h2>Equipamentos &middot; tempo ligado em 24h</h2>
+          </div>
+          <div class="ini-equip" id="iniEquipLista"><p class="ini-vazio">carregando…</p></div>
+        </section>
       </div>
 
-      <div class="barra-card">
-        <div class="barra-topo">
-          <span class="barra-titulo"><svg data-lucide="droplets"></svg><span id="soloLabelFaixa">Umidade do solo (ideal entre 50% e 60%)</span></span>
-          <span class="barra-valor skeleton" id="soloValor">-- %</span>
-        </div>
-        <div class="barra-trilho solo"><div class="barra-marcador" id="soloMarcador"></div></div>
-        <div class="barra-rodape">
-          <div class="barra-escala"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
-        </div>
-        <div class="barra-status"><span class="pill pill-neutro" id="soloStatusPill">--</span></div>
-        <p class="barra-nota" id="soloNota" hidden>O sensor de solo n&atilde;o respondeu nas &uacute;ltimas 3 leituras. Verifique o cabo e a alimenta&ccedil;&atilde;o do sensor capacitivo.</p>
-      </div>
-
-      <div class="barra-card esconder-offline" id="aguaCard">
-        <div class="barra-topo">
-          <span class="barra-titulo"><svg data-lucide="glass-water"></svg>Caixa d&apos;&aacute;gua (70 L)</span>
-          <span class="barra-valor skeleton" id="aguaValor">-- L</span>
-        </div>
-        <div class="barra-trilho agua"><div class="agua-preenchimento" id="aguaPreenchimento"></div><div class="agua-limite" id="aguaLimite" title="Alerta de n&iacute;vel baixo"></div></div>
-        <div class="barra-rodape">
-          <div class="barra-escala"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
-        </div>
-        <div class="barra-status"><span class="pill pill-neutro" id="aguaStatusPill">--</span><span class="agua-detalhe" id="aguaDetalhe"></span><a class="barra-link" href="#caixa" data-ir-aba="caixa">Detalhes<svg data-lucide="arrow-right"></svg></a></div>
-        <p class="barra-nota" id="aguaNota" hidden>O sensor da caixa d&apos;&aacute;gua (HC-SR04) n&atilde;o respondeu nas &uacute;ltimas 3 leituras. Verifique a alimenta&ccedil;&atilde;o em 5 V e o divisor de tens&atilde;o no pino ECHO.</p>
-      </div>
+      <div class="ini-saude" id="iniSaude"></div>
     </div>
 
     <!-- ===================== ABA: COMANDOS ===================== -->
     <div class="aba" id="aba-comandos">
-      <h1 class="titulo-aba">Comandos</h1>
-      <p class="subtitulo-aba" style="margin-bottom:10px;">Os comandos v&atilde;o para uma fila; o ESP32 consulta a cada poucos segundos e aplica assim que chegar nele.</p>
+      <div class="aba-topo">
+        <h1 class="titulo-aba">Comandos</h1>
+        <div class="aba-topo-selos">
+          <span class="selo-status neutro" id="cmdSeloFila"><svg data-lucide="send"></svg><span>ESP32 aplica em segundos</span></span>
+        </div>
+      </div>
 
+      <!-- 1) Faixa de VPD: a referência usada pelas duas automações -->
       <div class="cmd-grupo">
         <div class="cmd-grupo-cabecalho">
-          <div class="cmd-grupo-titulo"><svg data-lucide="sprout"></svg>Cultivo e automa&ccedil;&otilde;es</div>
-          <span style="font-size:12px;color:var(--muted);">fase e controles autom&aacute;ticos</span>
+          <div class="cmd-grupo-titulo"><svg data-lucide="gauge"></svg>Faixa de VPD</div>
+          <span class="cmd-grupo-resumo">usada pelas automa&ccedil;&otilde;es</span>
         </div>
         <div class="rele-grid" id="cmdControles"></div>
       </div>
 
+      <!-- 2) Automações: umidificador e aquecedor -->
       <div class="cmd-grupo">
         <div class="cmd-grupo-cabecalho">
-          <div class="cmd-grupo-titulo"><svg data-lucide="plug-zap"></svg>Rel&eacute;s</div>
-          <span style="font-size:12px;color:var(--muted);">toque no interruptor para ligar/desligar</span>
+          <div class="cmd-grupo-titulo"><svg data-lucide="bot"></svg>Automa&ccedil;&otilde;es</div>
+          <span class="cmd-grupo-resumo" id="cmdAutoResumo"></span>
+        </div>
+        <div class="cmd-auto-grid" id="cmdAutomacoes"></div>
+      </div>
+
+      <!-- 3) Controle manual de cada relé -->
+      <div class="cmd-grupo">
+        <div class="cmd-grupo-cabecalho">
+          <div class="cmd-grupo-titulo"><svg data-lucide="plug-zap"></svg>Rel&eacute;s &middot; controle manual</div>
+          <span class="cmd-grupo-resumo" id="cmdRelesResumo"></span>
         </div>
         <div class="rele-grid" id="cmdReles"></div>
       </div>
@@ -152,17 +229,18 @@ $ehAdmin = auth_eh_admin();
 
     <!-- ===================== ABA: CAIXA D'ÁGUA ===================== -->
     <div class="aba" id="aba-caixa">
-      <h1 class="titulo-aba">Caixa d&apos;&aacute;gua</h1>
-      <p class="subtitulo-aba">N&iacute;vel da caixa medido pelo sensor ultrass&ocirc;nico (HC-SR04) na tampa.</p>
-      <div class="cx-selos">
-        <span class="cx-selo" id="cxVivo"><i></i>Aguardando o sensor</span>
-        <span class="cx-selo cx-medida"><svg data-lucide="ruler"></svg>66 &times; 36 &times; 35 cm &middot; 70 L</span>
+      <div class="aba-topo">
+        <h1 class="titulo-aba">Caixa d&apos;&aacute;gua</h1>
+        <div class="aba-topo-selos">
+          <span class="cx-selo" id="cxVivo"><i></i>Aguardando o sensor</span>
+          <span class="cx-selo cx-medida"><svg data-lucide="ruler"></svg>70 L &middot; 66 &times; 36 &times; 35 cm</span>
+        </div>
       </div>
 
       <div class="cx-grade">
         <div class="cx-tanque-card">
           <div id="cxTanque"></div>
-          <div class="cx-legenda">Escala em litros &middot; a linha verde marca a capacidade de uso</div>
+          <div class="cx-legenda"><span><i class="cx-leg-cap"></i>capacidade 70 L</span><span><i class="cx-leg-min"></i>aviso de n&iacute;vel baixo</span></div>
         </div>
 
         <div class="cx-volume" id="cxVolume">
@@ -172,17 +250,19 @@ $ehAdmin = auth_eh_admin();
           <div class="barra-trilho agua"><div class="agua-preenchimento" id="cxPreenchimento"></div><div class="agua-limite" id="cxLimite" title="Aviso de n&iacute;vel baixo"></div></div>
           <div class="barra-rodape"><div class="barra-escala"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div></div>
           <div class="cx-indicadores">
-            <div class="cx-ind"><span>Altura da &aacute;gua</span><strong id="cxAltura">—</strong></div>
-            <div class="cx-ind"><span>Falta para encher</span><strong id="cxFalta">—</strong></div>
-            <div class="cx-ind"><span>Varia&ccedil;&atilde;o em 24 h</span><strong id="cxVariacao">—</strong></div>
-            <div class="cx-ind"><span>&Uacute;ltima leitura</span><strong id="cxUltima">—</strong></div>
+            <div class="cx-ind destaque"><span><svg data-lucide="hourglass"></svg>Autonomia</span><strong id="cxAutonomia">—</strong></div>
+            <div class="cx-ind destaque"><span><svg data-lucide="calendar-clock"></svg>Encher at&eacute;</span><strong id="cxEncher">—</strong></div>
+            <div class="cx-ind"><span><svg data-lucide="trending-down"></svg>Consumo m&eacute;dio</span><strong id="cxConsumo">—</strong></div>
+            <div class="cx-ind"><span><svg data-lucide="arrow-down-up"></svg>Varia&ccedil;&atilde;o em 24 h</span><strong id="cxVariacao">—</strong></div>
+            <div class="cx-ind"><span><svg data-lucide="ruler"></svg>Altura da &aacute;gua</span><strong id="cxAltura">—</strong></div>
+            <div class="cx-ind"><span><svg data-lucide="droplets"></svg>Falta para encher</span><strong id="cxFalta">—</strong></div>
           </div>
-          <div class="cx-bloqueio" id="cxBloqueio" hidden><svg data-lucide="shield-alert"></svg>Irriga&ccedil;&atilde;o bloqueada para proteger a bomba (caixa abaixo de 10%).</div>
+          <div class="cx-bloqueio" id="cxBloqueio" hidden><svg data-lucide="shield-alert"></svg>Irriga&ccedil;&atilde;o bloqueada: caixa abaixo de 10%.</div>
         </div>
       </div>
 
       <div class="grafico-card cx-grafico">
-        <h2>Volume nas &uacute;ltimas 24 horas (litros)</h2>
+        <div class="grafico-cab"><h2>Volume &middot; 24 h</h2><div class="grafico-stats" id="cxGraficoStats"></div></div>
         <div class="grafico-wrap">
           <div class="grafico-skeleton skeleton" id="graficoCaixaSkeleton"></div>
           <canvas id="graficoCaixa"></canvas>
@@ -190,29 +270,30 @@ $ehAdmin = auth_eh_admin();
         </div>
       </div>
 
-      <div class="auto-nota">
-        <svg data-lucide="info"></svg>
-        <div>Caixa de paredes retas, 66 &times; 36 cm e 35 cm de altura: 70 L ficam a cerca de 29,5 cm do fundo (100%). Abaixo de 10% o ESP32 bloqueia o rel&eacute; de irriga&ccedil;&atilde;o para proteger a bomba. O aviso de caixa baixa &eacute; ajustado em <a href="#configuracoes" data-ir-aba="configuracoes" style="color:var(--accent);">Configura&ccedil;&otilde;es</a>.</div>
-      </div>
+      <details class="ajuda"><summary><svg data-lucide="info"></svg>Como o n&iacute;vel &eacute; medido<svg data-lucide="chevron-down" class="ajuda-seta"></svg></summary><div><ul><li>Sensor ultrass&ocirc;nico (HC-SR04) na tampa mede a dist&acirc;ncia at&eacute; a &aacute;gua.</li><li>100% = 70 L, a cerca de 29,5 cm do fundo.</li><li>Abaixo de 10% o ESP32 bloqueia a irriga&ccedil;&atilde;o para proteger a bomba.</li><li>Autonomia e consumo usam a m&eacute;dia dos &uacute;ltimos 7 dias.</li><li>O aviso de n&iacute;vel baixo &eacute; ajustado em <a href="#configuracoes" data-ir-aba="configuracoes">Configura&ccedil;&otilde;es</a>.</li></ul></div></details>
     </div>
 
     <!-- ===================== ABA: HISTÓRICO ===================== -->
     <div class="aba" id="aba-historico">
-      <h1 class="titulo-aba">Hist&oacute;rico</h1>
-      <p class="subtitulo-aba">Gr&aacute;ficos dos sensores e do VPD. O rel&oacute;gio de eventos tem p&aacute;gina pr&oacute;pria.</p>
-
-      <div class="grafico-topo">
-        <h2 style="margin:0;">Per&iacute;odo</h2>
-        <div class="periodo-botoes">
-          <button class="periodo-botao ativo" data-periodo="24h" onclick="mudarPeriodo('24h')">24 horas</button>
-          <button class="periodo-botao" data-periodo="7d" onclick="mudarPeriodo('7d')">1 semana</button>
-          <button class="periodo-botao" data-periodo="30d" onclick="mudarPeriodo('30d')">1 m&ecirc;s</button>
-          <a class="btn btn-sec btn-csv" id="btnExportarCsv" href="exportar_csv.php?periodo=24h" download><svg data-lucide="download"></svg>Exportar CSV</a>
+      <div class="aba-topo">
+        <h1 class="titulo-aba">Hist&oacute;rico</h1>
+        <div class="periodo-botoes" role="group" aria-label="Per&iacute;odo">
+          <button class="periodo-botao ativo" data-periodo="24h" onclick="mudarPeriodo('24h')">24 h</button>
+          <button class="periodo-botao" data-periodo="7d" onclick="mudarPeriodo('7d')">7 dias</button>
+          <button class="periodo-botao" data-periodo="30d" onclick="mudarPeriodo('30d')">30 dias</button>
+          <a class="btn btn-sec btn-csv" id="btnExportarCsv" href="exportar_csv.php?periodo=24h" download title="Exportar CSV" aria-label="Exportar CSV"><svg data-lucide="download"></svg><span>CSV</span></a>
         </div>
       </div>
+      <nav class="hist-atalhos" aria-label="Gr&aacute;ficos">
+        <a href="#hist-temp"><i style="background:#4CAF50;"></i>Temperatura</a>
+        <a href="#hist-umid"><i style="background:#7fa9c2;"></i>Umidade</a>
+        <a href="#hist-vpd"><i style="background:#eef1ee;"></i>VPD</a>
+        <a href="#hist-solo"><i style="background:#b98d5e;"></i>Solo</a>
+        <a href="#hist-agua"><i style="background:#6fb3e0;"></i>Caixa</a>
+      </nav>
 
-      <div class="grafico-card">
-        <h2>Temperatura (interna x externa)</h2>
+      <div class="grafico-card" id="hist-temp">
+        <div class="grafico-cab"><h2>Temperatura</h2><div class="grafico-stats" id="statsTemperatura"></div></div>
         <div class="grafico-wrap">
           <div class="grafico-skeleton skeleton" id="graficoTemperaturaSkeleton"></div>
           <canvas id="graficoTemperatura"></canvas>
@@ -220,8 +301,8 @@ $ehAdmin = auth_eh_admin();
         </div>
       </div>
 
-      <div class="grafico-card">
-        <h2>Umidade (interna x externa)</h2>
+      <div class="grafico-card" id="hist-umid">
+        <div class="grafico-cab"><h2>Umidade do ar</h2><div class="grafico-stats" id="statsUmidade"></div></div>
         <div class="grafico-wrap">
           <div class="grafico-skeleton skeleton" id="graficoUmidadeSkeleton"></div>
           <canvas id="graficoUmidade"></canvas>
@@ -229,26 +310,8 @@ $ehAdmin = auth_eh_admin();
         </div>
       </div>
 
-      <div class="grafico-card">
-        <h2>Umidade do solo</h2>
-        <div class="grafico-wrap">
-          <div class="grafico-skeleton skeleton" id="graficoSoloSkeleton"></div>
-          <canvas id="graficoSolo"></canvas>
-          <div class="grafico-erro" id="graficoSoloMsg" style="display:none;"></div>
-        </div>
-      </div>
-
-      <div class="grafico-card">
-        <h2>Caixa d&apos;&aacute;gua (litros)</h2>
-        <div class="grafico-wrap">
-          <div class="grafico-skeleton skeleton" id="graficoAguaSkeleton"></div>
-          <canvas id="graficoAgua"></canvas>
-          <div class="grafico-erro" id="graficoAguaMsg" style="display:none;"></div>
-        </div>
-      </div>
-
-      <div class="grafico-card">
-        <h2>VPD &mdash; d&eacute;ficit de press&atilde;o de vapor (kPa)</h2>
+      <div class="grafico-card" id="hist-vpd">
+        <div class="grafico-cab"><h2>VPD</h2><div class="grafico-stats" id="statsVpd"></div></div>
         <div class="grafico-wrap alto">
           <div class="grafico-skeleton skeleton" id="graficoVpdSkeleton"></div>
           <canvas id="graficoVpd"></canvas>
@@ -257,12 +320,30 @@ $ehAdmin = auth_eh_admin();
         <div class="vpd-legenda" id="vpdLegenda"></div>
       </div>
 
+      <div class="grafico-card" id="hist-solo">
+        <div class="grafico-cab"><h2>Umidade do solo</h2><div class="grafico-stats" id="statsSolo"></div></div>
+        <div class="grafico-wrap">
+          <div class="grafico-skeleton skeleton" id="graficoSoloSkeleton"></div>
+          <canvas id="graficoSolo"></canvas>
+          <div class="grafico-erro" id="graficoSoloMsg" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div class="grafico-card" id="hist-agua">
+        <div class="grafico-cab"><h2>Caixa d&apos;&aacute;gua</h2><div class="grafico-stats" id="statsAgua"></div></div>
+        <div class="grafico-wrap">
+          <div class="grafico-skeleton skeleton" id="graficoAguaSkeleton"></div>
+          <canvas id="graficoAgua"></canvas>
+          <div class="grafico-erro" id="graficoAguaMsg" style="display:none;"></div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ===================== ABA: RELÓGIO DE EVENTOS ===================== -->
     <div class="aba" id="aba-relogio">
       <h1 class="titulo-aba">Rel&oacute;gio de eventos</h1>
-      <p class="subtitulo-aba" style="margin-bottom:16px;">&Uacute;ltimas 24 horas. Toque num ponto ou num trecho colorido.</p>
+      <p class="subtitulo-aba" style="margin-bottom:14px;">&Uacute;ltimas 24 h &middot; toque num ponto ou trecho para ver o detalhe</p>
       <div class="rr-resumo" id="rrResumo"></div>
       <section>
         <div class="roda-card">
@@ -284,7 +365,7 @@ $ehAdmin = auth_eh_admin();
     <!-- ===================== ABA: FOTOPERÍODO ===================== -->
     <div class="aba" id="aba-fotoperiodo">
       <h1 class="titulo-aba">Fotoper&iacute;odo</h1>
-      <p class="subtitulo-aba">Central dos timers de luz. Escolha a hora em que a luz acende em cada fase &mdash; a dura&ccedil;&atilde;o do ciclo &eacute; fixa.</p>
+      <p class="subtitulo-aba">Hora em que a luz acende em cada fase &middot; a dura&ccedil;&atilde;o &eacute; fixa</p>
 
       <div class="auto-status">
         <div class="card">
@@ -314,16 +395,12 @@ $ehAdmin = auth_eh_admin();
         <div class="timer-card" id="timer-floracao" data-modo="floracao"></div>
       </div>
 
-      <div class="auto-nota">
-        <svg data-lucide="info"></svg>
-        <div>O novo hor&aacute;rio vai para a fila de comandos e o ESP32 aplica em alguns segundos (fica salvo na mem&oacute;ria do rel&oacute;gio, mesmo se faltar energia). Se a luz estiver em modo manual, o timer volta a valer quando o manual expirar &mdash; hoje em <span id="notaManualMin">30 min</span>, ajust&aacute;vel em <a href="#configuracoes" data-ir-aba="configuracoes" style="color:var(--accent);">Configura&ccedil;&otilde;es</a>.</div>
-      </div>
+      <details class="ajuda"><summary><svg data-lucide="info"></svg>Como o timer funciona<svg data-lucide="chevron-down" class="ajuda-seta"></svg></summary><div><ul><li>O hor&aacute;rio salvo vai para a fila e o ESP32 aplica em segundos.</li><li>Fica gravado no rel&oacute;gio do ESP32, mesmo sem energia ou internet.</li><li>Luz em modo manual: o timer volta a valer em <span id="notaManualMin">30 min</span> (ajuste em <a href="#configuracoes" data-ir-aba="configuracoes">Configura&ccedil;&otilde;es</a>).</li><li>Na troca de fase, a contagem de dias do ciclo recome&ccedil;a.</li></ul></div></details>
     </div>
 
     <!-- ===================== ABA: DISPOSITIVO ===================== -->
     <div class="aba" id="aba-dispositivo">
-      <h1 class="titulo-aba">Dispositivo</h1>
-      <p class="subtitulo-aba">Conex&atilde;o do hardware com a sua conta.</p>
+      <h1 class="titulo-aba sem-sub">Dispositivo</h1>
 
       <div class="disp-card" id="dispCard">
         <div class="disp-topo">
@@ -332,10 +409,10 @@ $ehAdmin = auth_eh_admin();
           <span class="selo-status" id="dispStatus"><i></i><span>--</span></span>
         </div>
         <div class="disp-grade">
-          <div class="disp-item"><span>Firmware</span><strong id="dispFirmware">--</strong></div>
-          <div class="disp-item"><span>&Uacute;ltimo contato</span><strong id="dispContato">--</strong></div>
-          <div class="disp-item"><span>Sinal Wi-Fi</span><strong id="dispSinal">--</strong></div>
-          <div class="disp-item"><span>Ligado h&aacute;</span><strong id="dispUptime">--</strong></div>
+          <div class="disp-item"><span><svg data-lucide="package"></svg>Firmware</span><strong id="dispFirmware">--</strong></div>
+          <div class="disp-item"><span><svg data-lucide="radio"></svg>&Uacute;ltimo contato</span><strong id="dispContato">--</strong></div>
+          <div class="disp-item"><span><svg data-lucide="wifi"></svg>Sinal Wi-Fi</span><strong id="dispSinal">--</strong><div class="sinal-barras" id="dispSinalBarras" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>
+          <div class="disp-item"><span><svg data-lucide="power"></svg>Ligado h&aacute;</span><strong id="dispUptime">--</strong></div>
         </div>
         <p class="disp-rodape" id="dispRodape">--</p>
       </div>
@@ -344,7 +421,7 @@ $ehAdmin = auth_eh_admin();
         <section class="disp-secao" id="dispToken">
           <h3 class="disp-secao-titulo"><svg data-lucide="key-round"></svg>Token do hardware</h3>
           <strong class="disp-sub" id="tokTitulo">Token ativo</strong>
-          <p class="disp-texto" id="tokTexto">C&oacute;digo &uacute;nico que o ESP32 usa para se identificar no servidor. Por seguran&ccedil;a, o token completo s&oacute; aparece uma vez, quando &eacute; gerado.</p>
+          <p class="disp-texto" id="tokTexto">Identifica o ESP32 no servidor. O c&oacute;digo completo s&oacute; aparece ao ser gerado.</p>
           <div class="tok-caixa" id="tokCaixa"><code id="tokValor">--</code><button type="button" class="btn btn-sec btn-icone" id="btnTokCopiar" title="Copiar" hidden><svg data-lucide="copy"></svg></button></div>
           <p class="disp-meta" id="tokMeta"></p>
           <div class="disp-acoes" id="tokAcoes">
@@ -356,11 +433,10 @@ $ehAdmin = auth_eh_admin();
 
         <section class="disp-secao" id="dispVinculo">
           <h3 class="disp-secao-titulo"><svg data-lucide="link"></svg>Vincular novo dispositivo</h3>
-          <p class="disp-texto">Conecte outro ESP32 sem editar o firmware. Gere um token de vincula&ccedil;&atilde;o e siga os passos:</p>
-          <ol class="passos">
-            <li><i>1</i><span>Ligue o ESP32 e conecte o celular &agrave; rede Wi-Fi &ldquo;SmartDemetra-Setup&rdquo;. Se ele j&aacute; estiver configurado, segure o bot&atilde;o do OLED ao ligar.</span></li>
-            <li><i>2</i><span>Abra 192.168.4.1 no navegador, escolha a sua rede e cole o token.</span></li>
-            <li><i>3</i><span>Aguarde a confirma&ccedil;&atilde;o aqui &mdash; o dispositivo aparece como Online.</span></li>
+                    <ol class="passos">
+            <li><i>1</i><span><strong>Conecte ao Wi-Fi do ESP32</strong>Rede &ldquo;SmartDemetra-Setup&rdquo;. J&aacute; configurado? Segure o bot&atilde;o do OLED ao ligar.</span></li>
+            <li><i>2</i><span><strong>Abra 192.168.4.1</strong>Escolha a sua rede e cole o token.</span></li>
+            <li><i>3</i><span><strong>Aguarde aqui</strong>O dispositivo aparece como Online.</span></li>
           </ol>
           <div class="vinc-codigo" id="vincCodigo" hidden>
             <span>Token de vincula&ccedil;&atilde;o</span>
@@ -381,18 +457,27 @@ $ehAdmin = auth_eh_admin();
 
     <!-- ===================== ABA: CONFIGURAÇÕES ===================== -->
     <div class="aba" id="aba-configuracoes">
-      <h1 class="titulo-aba">Configura&ccedil;&otilde;es</h1>
-      <p class="subtitulo-aba">Prefer&ecirc;ncias do painel e faixas de alerta. Ficam salvas no servidor e valem em qualquer aparelho.</p>
+      <h1 class="titulo-aba sem-sub">Configura&ccedil;&otilde;es</h1>
+      <nav class="cfg-atalhos" aria-label="Se&ccedil;&otilde;es">
+        <a href="#cfg-painel"><svg data-lucide="layout-dashboard"></svg>Painel</a>
+        <a href="#cfg-faixas"><svg data-lucide="bell-ring"></svg>Faixas</a>
+        <a href="#grupoNotif"><svg data-lucide="send"></svg>Notifica&ccedil;&otilde;es</a>
+        <a href="#grupoLuz"><svg data-lucide="lightbulb"></svg>Luz</a>
+        <a href="#cfg-conta"><svg data-lucide="shield"></svg>Conta</a>
+<?php if ($ehAdmin): ?>
+        <a href="#grupoUsuarios"><svg data-lucide="users"></svg>Usu&aacute;rios</a>
+<?php endif; ?>
+      </nav>
 
       <form id="formConfig" autocomplete="off">
-        <div class="cfg-grupo">
+        <div class="cfg-grupo" id="cfg-painel">
           <div class="cfg-grupo-titulo"><svg data-lucide="layout-dashboard"></svg>Painel</div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Nome do cultivo</strong><small>Aparece no menu e na aba do navegador.</small></div>
+            <div class="cfg-texto"><strong>Nome do cultivo</strong></div>
             <div class="cfg-controle"><input type="text" name="nome_cultivo" maxlength="40" required></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>P&aacute;gina inicial</strong><small>Qual p&aacute;gina abre ao entrar no painel.</small></div>
+            <div class="cfg-texto"><strong>P&aacute;gina inicial</strong><small>Abre ao entrar</small></div>
             <div class="cfg-controle">
               <select name="pagina_inicial">
                 <option value="inicio">In&iacute;cio</option>
@@ -405,7 +490,7 @@ $ehAdmin = auth_eh_admin();
             </div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Atualiza&ccedil;&atilde;o autom&aacute;tica</strong><small>O ESP32 manda o estado atual a cada 5 s, ent&atilde;o 5 s deixa o painel ao vivo. Cada atualiza&ccedil;&atilde;o &eacute; leve: busca s&oacute; o que mudou.</small></div>
+            <div class="cfg-texto"><strong>Atualiza&ccedil;&atilde;o autom&aacute;tica</strong><small>5 s = ao vivo</small></div>
             <div class="cfg-controle">
               <select name="intervalo_atualizacao_seg">
                 <option value="5">5 segundos</option>
@@ -419,7 +504,7 @@ $ehAdmin = auth_eh_admin();
             </div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Per&iacute;odo padr&atilde;o do hist&oacute;rico</strong><small>Per&iacute;odo selecionado ao abrir os gr&aacute;ficos.</small></div>
+            <div class="cfg-texto"><strong>Per&iacute;odo padr&atilde;o do hist&oacute;rico</strong></div>
             <div class="cfg-controle">
               <select name="periodo_padrao_historico">
                 <option value="24h">24 horas</option>
@@ -430,34 +515,34 @@ $ehAdmin = auth_eh_admin();
           </div>
         </div>
 
-        <div class="cfg-grupo">
-          <div class="cfg-grupo-titulo"><svg data-lucide="bell-ring"></svg>Faixas de alerta</div>
+        <div class="cfg-grupo" id="cfg-faixas">
+          <div class="cfg-grupo-titulo"><svg data-lucide="bell-ring"></svg>Faixas ideais e alertas<span class="cfg-grupo-dica">usadas no In&iacute;cio e nos avisos</span></div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Caixa d&apos;&aacute;gua baixa</strong><small>Abaixo deste n&iacute;vel a barra da caixa fica em alerta e o Telegram avisa (capacidade de 70 L).</small></div>
+            <div class="cfg-texto"><strong>Caixa d&apos;&aacute;gua baixa</strong><small>Avisa abaixo deste n&iacute;vel &middot; 70 L</small></div>
             <div class="cfg-controle"><span>abaixo de</span><input type="number" name="agua_alerta_min" min="0" max="90" step="1"><span>%</span></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Umidade do solo ideal</strong><small>Usada na barra do solo da p&aacute;gina In&iacute;cio.</small></div>
+            <div class="cfg-texto"><strong>Umidade do solo</strong></div>
             <div class="cfg-controle"><input type="number" name="solo_ideal_min" min="0" max="100" step="1"><span>a</span><input type="number" name="solo_ideal_max" min="0" max="100" step="1"><span>%</span></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Temperatura interna</strong><small>Fora desta faixa o card de temperatura fica em alerta.</small></div>
+            <div class="cfg-texto"><strong>Temperatura interna</strong></div>
             <div class="cfg-controle"><input type="text" inputmode="decimal" data-decimal name="temp_alerta_min" maxlength="5"><span>a</span><input type="text" inputmode="decimal" data-decimal name="temp_alerta_max" maxlength="5"><span>&deg;C</span></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Umidade interna</strong><small>Fora desta faixa o card de umidade fica em alerta.</small></div>
+            <div class="cfg-texto"><strong>Umidade interna</strong></div>
             <div class="cfg-controle"><input type="number" name="umid_alerta_min" min="0" max="100" step="1"><span>a</span><input type="number" name="umid_alerta_max" min="0" max="100" step="1"><span>%</span></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>VPD ideal &middot; Vegeta&ccedil;&atilde;o</strong><small>O In&iacute;cio avalia o VPD pela faixa da fase ativa.</small></div>
+            <div class="cfg-texto"><strong>VPD &middot; Vegeta&ccedil;&atilde;o</strong></div>
             <div class="cfg-controle"><input type="text" inputmode="decimal" data-decimal name="vpd_vegetativo_min" maxlength="4"><span>a</span><input type="text" inputmode="decimal" data-decimal name="vpd_vegetativo_max" maxlength="4"><span>kPa</span></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>VPD ideal &middot; Flora&ccedil;&atilde;o</strong><small>Faixa usada quando a flora&ccedil;&atilde;o est&aacute; ativa.</small></div>
+            <div class="cfg-texto"><strong>VPD &middot; Flora&ccedil;&atilde;o</strong></div>
             <div class="cfg-controle"><input type="text" inputmode="decimal" data-decimal name="vpd_floracao_min" maxlength="4"><span>a</span><input type="text" inputmode="decimal" data-decimal name="vpd_floracao_max" maxlength="4"><span>kPa</span></div>
           </div>
           <div class="cfg-linha">
-            <div class="cfg-texto"><strong>Dispositivo sem dados</strong><small>Depois desse tempo sem leituras o painel mostra o aviso de offline.</small></div>
+            <div class="cfg-texto"><strong>Considerar offline ap&oacute;s</strong><small>Tempo sem leituras at&eacute; avisar</small></div>
             <div class="cfg-controle">
               <select name="dispositivo_sem_dados_min">
                 <option value="2">2 minutos</option>
@@ -479,7 +564,7 @@ $ehAdmin = auth_eh_admin();
       <div class="cfg-grupo" id="grupoNotif">
         <div class="cfg-grupo-titulo"><svg data-lucide="send"></svg>Notifica&ccedil;&otilde;es</div>
         <div class="cfg-linha cfg-linha-tg">
-          <div class="cfg-texto"><strong>Telegram</strong><small id="tgInfo">Os avisos chegam pelo bot do Smart Demetra.</small></div>
+          <div class="cfg-texto"><strong>Telegram</strong><small id="tgInfo">Avisos pelo bot do Smart Demetra</small></div>
           <div class="cfg-controle cfg-tg">
             <div class="tg-status" id="tgStatus"><i></i><span>carregando...</span></div>
             <button type="button" class="btn btn-sec" id="btnTgAcao" hidden>Enviar teste</button>
@@ -498,7 +583,7 @@ $ehAdmin = auth_eh_admin();
           <button type="button" class="switch verde" role="switch" aria-checked="false" data-notif="notif_faixa" aria-label="Uma leitura sair da faixa"></button>
         </div>
         <div class="cfg-linha cfg-switch">
-          <div class="cfg-texto"><span>O dispositivo ficar offline</span><small>Ap&oacute;s o tempo sem dados definido acima</small></div>
+          <div class="cfg-texto"><span>O dispositivo ficar offline</span><small>Ap&oacute;s o tempo definido em Faixas</small></div>
           <button type="button" class="switch verde" role="switch" aria-checked="false" data-notif="notif_offline" aria-label="O dispositivo ficar offline"></button>
         </div>
         <div class="cfg-linha cfg-switch">
@@ -509,13 +594,13 @@ $ehAdmin = auth_eh_admin();
           <div class="cfg-texto"><span>Resumo di&aacute;rio &agrave;s 08:00</span><small>M&eacute;dias do dia anterior e dia do ciclo</small></div>
           <button type="button" class="switch verde" role="switch" aria-checked="false" data-notif="notif_resumo" aria-label="Resumo di&aacute;rio &agrave;s 08:00"></button>
         </div>
-        <p class="cfg-nota" style="padding:4px 0 14px;">Avisos do mesmo tipo s&atilde;o enviados no m&aacute;ximo a cada 30 min, e voc&ecirc; recebe outro quando a situa&ccedil;&atilde;o se normaliza.</p>
+        <p class="cfg-nota" style="padding:4px 0 14px;">No m&aacute;ximo 1 aviso do mesmo tipo a cada 30 min, e outro quando normalizar.</p>
       </div>
 
       <div class="cfg-grupo" id="grupoLuz">
         <div class="cfg-grupo-titulo"><svg data-lucide="lightbulb"></svg>Luz</div>
         <div class="cfg-linha">
-          <div class="cfg-texto"><strong>Dura&ccedil;&atilde;o do modo manual</strong><small>Quanto tempo a luz fica no modo manual antes de voltar ao timer. Enviado ao ESP32 pela fila de comandos.</small><small id="luzManualStatus"></small></div>
+          <div class="cfg-texto"><strong>Dura&ccedil;&atilde;o do modo manual</strong><small>Depois disso a luz volta ao timer</small><small id="luzManualStatus"></small></div>
           <div class="cfg-controle">
             <select id="luzManualMin" aria-label="Dura&ccedil;&atilde;o do modo manual">
               <option value="15">15 minutos</option>
@@ -527,14 +612,14 @@ $ehAdmin = auth_eh_admin();
         </div>
       </div>
 
-      <div class="cfg-grupo">
+      <div class="cfg-grupo" id="cfg-conta">
         <div class="cfg-grupo-titulo"><svg data-lucide="shield"></svg>Conta</div>
         <div class="cfg-linha">
           <div class="cfg-texto"><strong>Usu&aacute;rio</strong><small>Logado como <?= htmlspecialchars($usuarioLogado, ENT_QUOTES, 'UTF-8') ?><?= $ehAdmin ? ' (administrador)' : '' ?>.</small></div>
           <div class="cfg-controle"><a href="logout.php" class="btn btn-sec" style="width:100%;text-decoration:none;"><svg data-lucide="log-out"></svg>Sair</a></div>
         </div>
         <div class="cfg-linha">
-          <div class="cfg-texto"><strong>Alterar senha</strong><small id="senhaInfo">Troque a senha usada para entrar no painel.</small></div>
+          <div class="cfg-texto"><strong>Alterar senha</strong><small id="senhaInfo"></small></div>
           <div class="cfg-controle"><button type="button" class="btn btn-sec" id="btnAbrirSenha" style="width:100%;"><svg data-lucide="key-round"></svg>Alterar</button></div>
         </div>
         <form class="cfg-subpainel" id="painelSenha" hidden autocomplete="off">
@@ -543,7 +628,7 @@ $ehAdmin = auth_eh_admin();
             <label class="campo"><span class="campo-label">Nova senha</span><input type="password" name="nova_senha" autocomplete="new-password" minlength="8" required></label>
             <label class="campo"><span class="campo-label">Confirmar nova senha</span><input type="password" name="confirma" autocomplete="new-password" required></label>
           </div>
-          <p class="cfg-nota">M&iacute;nimo de 8 caracteres, com letras e n&uacute;meros. Os outros aparelhos conectados vOs outros aparelhos conectados com "Lembrar de mim" precisar&atilde;o entrar de novo.atilde;o precisar entrar de novo.</p>
+          <p class="cfg-nota">M&iacute;nimo de 8 caracteres, com letras e n&uacute;meros. Os outros aparelhos conectados precisar&atilde;o entrar de novo.</p>
           <div class="cfg-acoes">
             <button type="button" class="btn btn-sec" id="btnCancelarSenha">Cancelar</button>
             <button type="submit" class="btn btn-primario"><svg data-lucide="save"></svg>Salvar senha</button>
@@ -555,7 +640,7 @@ $ehAdmin = auth_eh_admin();
       <div class="cfg-grupo" id="grupoUsuarios">
         <div class="cfg-grupo-titulo"><svg data-lucide="users"></svg>Usu&aacute;rios <span class="pill pill-neutro" id="conviteStatus" style="margin-left:auto;">--</span></div>
         <div class="cfg-linha">
-          <div class="cfg-texto"><strong>C&oacute;digo de convite</strong><small id="conviteInfo">Quem souber este c&oacute;digo consegue criar uma conta na tela de login. Deixe vazio para desativar o cadastro.</small></div>
+          <div class="cfg-texto"><strong>C&oacute;digo de convite</strong><small id="conviteInfo">Permite criar conta no login &middot; vazio desativa</small></div>
           <div class="cfg-controle cfg-convite">
             <input type="text" id="conviteCodigo" maxlength="40" placeholder="sem c&oacute;digo" autocomplete="off" spellcheck="false">
             <button type="button" class="btn btn-sec btn-icone" id="btnGerarConvite" title="Gerar c&oacute;digo"><svg data-lucide="refresh-cw"></svg></button>

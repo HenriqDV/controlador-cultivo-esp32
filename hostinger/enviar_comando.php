@@ -45,6 +45,9 @@ if ($tipo === 'rele' && in_array($alvo, $relesValidos, true) && in_array($valor,
     $valido = true;
 } elseif ($tipo === 'clima_vpd' && $alvo === 'clima' && clima_valido($valor)) {
     $valido = true;
+} elseif ($tipo === 'aquecedor_noturno' && $alvo === 'aquecedor' && in_array($valor, ['0', '1'], true)) {
+    // Aquecedor noturno (firmware 2.10.0): liga quando a luz apaga e desliga em máximo da faixa de VPD - 0,20 kPa.
+    $valido = true;
 } elseif ($tipo === 'fotoperiodo' && in_array($alvo, ['vegetativo', 'floracao'], true) && horario_fotoperiodo_valido($valor)) {
     // Início da luz "HH:MM"; a duração é fixa no firmware.
     $valido = true;
@@ -60,9 +63,10 @@ if (!$valido) {
 }
 
 try {
-    // Clima por VPD: só o último ajuste ainda não entregue vale.
-    if ($tipo === 'clima_vpd') {
-        db()->prepare("DELETE FROM comandos_pendentes WHERE tipo = 'clima_vpd' AND status = 'pendente'")->execute();
+    // Clima por VPD e aquecedor noturno: só o último ajuste ainda não entregue vale.
+    if ($tipo === 'clima_vpd' || $tipo === 'aquecedor_noturno') {
+        $limpar = db()->prepare("DELETE FROM comandos_pendentes WHERE tipo = ? AND status = 'pendente'");
+        $limpar->execute([$tipo]);
     }
     $stmt = db()->prepare(
         'INSERT INTO comandos_pendentes (tipo, alvo, valor, usuario) VALUES (?, ?, ?, ?)'

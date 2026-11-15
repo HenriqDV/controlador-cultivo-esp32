@@ -19,6 +19,7 @@ do projeto está no `README.md` da raiz.
 | `exportar_csv.php` | Sessão | Histórico em CSV (`?periodo=24h\|7d\|30d`; `;` e vírgula decimal) |
 | `dados.php` | Sessão | Leituras para os gráficos (`?periodo=24h\|7d\|30d`; no 24h, `&desde=<id>` devolve só as novas) |
 | `comandos.php` | Sessão | Eventos executados + modo de cultivo atual |
+| `inicio_resumo.php` | Sessão | Página Início: períodos ligados de cada relé nas últimas 24 h e litros da caixa por hora em 7 dias (consumo e autonomia) |
 | `comandos_pendentes.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 busca os comandos da fila |
 | `registrar_leitura.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 envia leituras (o VPD é calculado aqui) |
 | `registrar_comando.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 envia eventos executados |
