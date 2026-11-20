@@ -8,7 +8,7 @@ do projeto está no `README.md` da raiz.
 
 | Arquivo | Acesso | Função |
 |---|---|---|
-| `index.php` | Sessão | Dashboard (Início, Relógio de eventos, Fotoperíodo, Comandos, Caixa d'água, Histórico, Dispositivo, Configurações) |
+| `index.php` | Sessão | Dashboard (Início com a estufa animada, Calendário de manejo, Relógio de eventos, Fotoperíodo, Comandos, Caixa d'água, Histórico, Dispositivo, Configurações) |
 | `login.php` / `logout.php` | — | Login, cadastro (com código de convite), esqueci a senha, sair |
 | `auth.php` | — | Contas, "Lembrar de mim", código de convite e CSRF |
 | `usuarios.php` | Sessão | Alterar senha; admin: contas, redefinir senha, convite |
@@ -27,15 +27,18 @@ do projeto está no `README.md` da raiz.
 | `estado_atual.php` | `X-API-Key` (token `sd_hw_` ou API_KEY) | ESP32 manda o estado atual a cada 5 s (guarda só o último, para o painel ao vivo) |
 | `dispositivo.php` | Sessão (alterações: admin) | Token do hardware, token de vinculação e atividade recente |
 | `vincular.php` | Pública (código de uso único) | ESP32 troca o token de vinculação pelo token definitivo |
+| `manejo.php` | Sessão | Calendário de manejo: produtos, aplicações (feitas e agendadas, com repetição) e fases do cultivo (`GET ?mes=AAAA-MM`) |
+| `manejo.js` | Pública | Aba Calendário (calendário, registros e fases) |
+| `estufa.js` | Pública | Animação da estufa do Início (estado real dos relés, pausa quando oculta, modo sem dados) |
 | `fotoperiodo.php` | Sessão | Troca de fase: ativar agora, programar para uma data, cancelar |
-| `cron.php` | Só linha de comando | Trocas de fase programadas e avisos do Telegram (cron a cada minuto) |
+| `cron.php` | Só linha de comando | Trocas de fase programadas e avisos do Telegram, incluindo o lembrete de manejo às 08:00 (cron a cada minuto) |
 | `notificacoes.php` | Sessão | Vínculo do Telegram, mensagem de teste e interruptores dos avisos |
 | `img/` | Pública | Símbolo da marca (`logo.png`, arquivo mestre 256 × 256 do manual de identidade), favicon e ícones do app (PNG 32, 180, 192 e 512) |
 | `fonts/` | Pública | `DemetraDisplay-Regular.otf`, fonte exclusiva do nome Smart Demetra (o resto da interface usa Plus Jakarta Sans) |
 | `telegram.php` | — | Envio pelo bot, limite de 1 aviso a cada 30 min e "normalizado" |
 | `sql/schema.sql` | — | Estrutura do banco (instalação nova) |
 | `sql/migracoes/` | — | Mudanças de banco numeradas: `.up.sql` aplica sozinho, `.down.sql` desfaz (rodar no phpMyAdmin) |
-| `partials/` | — | Cabeçalho e rodapé comuns do painel |
+| `partials/` | — | Cabeçalho e rodapé comuns do painel e a cena da estufa (`estufa.php`) |
 
 ## Instalação
 

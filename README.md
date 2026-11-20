@@ -6,17 +6,19 @@ Controla a **luz**, a **ventilação**, a **umidificação**, o **aquecimento**,
 
 ![Painel do Smart Demetra no computador e no celular](docs/img/capa.png)
 
-> **Versão atual:** painel v2 · firmware **v2.11.0** · banco com migrações automáticas até a `009`.
+> **Versão atual:** painel v2 · firmware **v2.11.0** · banco com migrações automáticas até a `012`.
 
 ---
 
 ## O que o projeto faz
 
 - 💡 **Luz automática por fase** — Vegetação 18/6 h ou floração 12/12 h. Você escolhe só a hora em que a luz acende, e o ESP32 confirma o horário em uso.
-- 🌱 **Ciclo de cultivo** — Conta o dia do ciclo e troca de fase na hora ou numa data programada.
+- 🌱 **Ciclo de cultivo** — Conta o dia do ciclo e troca de fase na hora ou numa data programada. No **Calendário de manejo** você também marca a data de início e fim de cada fase (germinação, muda, vegetação e floração).
+- 🏡 **Estufa animada no Início** — Uma cena que mostra a planta da fase de hoje, a luz, os ventiladores, o aquecedor e o umidificador conforme o estado **real** dos relés.
+- 📅 **Calendário de manejo** — Registre e agende aplicações (óleo de neem, chá de húmus etc.), com repetição a cada N dias e lembrete no Telegram.
 - 🌡️ **Monitoramento** — Temperatura e umidade dentro e fora da estufa, umidade do solo (sensor capacitivo) e VPD avaliado pela fase ativa, gravados a cada minuto.
 - 🪣 **Caixa d'água** — Nível medido por um HC-SR04 na tampa, em litros e percentual dos 70 L, com aba própria no painel, aviso de nível baixo e **proteção da bomba**: abaixo de 10% a irrigação é desligada e bloqueada.
-- 🔔 **Avisos no Telegram** — Leitura fora da faixa, caixa d'água baixa, dispositivo offline, timer não confirmado e resumo diário às 08:00.
+- 🔔 **Avisos no Telegram** — Leitura fora da faixa, caixa d'água baixa, dispositivo offline, timer não confirmado, resumo diário e lembrete de manejo às 08:00.
 - 🌀 **8 relés** — Luz, irrigação (relé 1), ventilador, umidificador (relé 3), entrada de ar, aquecedor, saída de ar e trava da porta. O ESP32 informa o estado de todos ao ligar.
 - 💨 **Clima por VPD** — Você escolhe a fase (muda, vegetação ou floração), e o umidificador mantém o VPD sempre dentro da faixa: liga antes do máximo e desliga antes do mínimo, sem liga/desliga curto e com trava de umidade. Funciona sem internet ([detalhes](#clima-por-vpd)).
 - ⚡ **Painel ao vivo** — O ESP32 manda o estado atual (leituras e relés) a cada 5 s, e o painel mostra sem recarregar, só com a Hostinger ([detalhes](#painel-ao-vivo)).
@@ -44,10 +46,29 @@ O ESP32 só faz conexões de saída, então não é preciso abrir portas no rote
 ## O painel
 
 ### Início
-Mostra as leituras atuais com a faixa ideal de cada card e o selo **Online/Offline** com o tempo da última leitura. O selo da fase indica o **dia do ciclo**. O card **Luz no ciclo** mostra há quanto tempo a luz está acesa. O VPD é comparado com a faixa da fase ativa, e o solo tem a faixa ideal marcada.
-Se o ESP32 parar de enviar, aparece o aviso de offline com a hora da última leitura. Se o sensor de solo (capacitivo) ou o da caixa d'água não responder três vezes seguidas, a barra mostra **"Sensor sem leitura"**. A barra da **caixa d'água** mostra litros, percentual dos 70 L e quantos centímetros de água há, e fica em alerta abaixo do nível configurado.
+A página abre com a **estufa animada**: a planta da fase de hoje (germinação, muda, vegetação ou floração), a luz acesa com seu cone, os ventiladores girando e o **aquecedor** e o **umidificador** desenhados na cena. Tudo reflete o **estado real dos relés** informado pelo ESP32, e a animação pausa quando a aba fica escondida. Se o ESP32 parar de enviar, a cena fica apagada com o aviso **"sem dados"**.
+
+- **Selos:** Online/Offline com o tempo da última leitura, fase com o **dia do ciclo** e há quanto tempo a luz está acesa (com a hora de apagar).
+- **Sino:** mostra o que precisa de atenção (manejo pendente ou atrasado) num popup centralizado; ao tocar, abre o Calendário.
+- **Rodapé da cena:** temperatura, umidade, VPD e solo com a faixa ideal, e os quatro botões de fase, com a fase de hoje destacada.
+- **No computador (a partir de 1280 px):** a cena fica fixa à esquerda e os cards à direita: ambiente interno (6 h, 3 h ou 1 h), externo, solo, caixa d'água (litros, percentual e autonomia), luz acesa × apagada e tempo ligado de cada equipamento. No celular, os cards vêm abaixo da cena.
+
+A fase de hoje vem do **Calendário de manejo** (a fase cujo período contém hoje). Sem fase no calendário, vale o modo do ESP32. Se o ESP32 já estiver em floração, ela prevalece sobre uma fase anterior do calendário.
+
+Se o sensor de solo (capacitivo) ou o da caixa d'água não responder três vezes seguidas, a barra mostra **"Sensor sem leitura"**. A barra da **caixa d'água** fica em alerta abaixo do nível configurado.
 
 ![Página Início](docs/img/painel-inicio.png)
+
+### Calendário de manejo
+Calendário mensal para registrar o que foi aplicado em cada dia e agendar as próximas aplicações.
+
+- **Produtos:** vem com 10 produtos (óleo de neem, chá de húmus etc.) e você cadastra outros. Cada registro aceita observação e vários produtos.
+- **Feito ou agendado:** um registro futuro fica como **agendado**; no dia, é só dar o check. Pendências passadas aparecem como **atrasadas**.
+- **Repetição:** escolha repetir a cada 3, 7 ou 14 dias (ou outro número). Ao dar o check, a próxima aplicação é criada sozinha; desfazer o check apaga a próxima pendente.
+- **Fases do cultivo:** informe início e fim de cada fase. O calendário pinta os dias de cada fase e a estufa do Início mostra a fase de hoje. Deixe o fim em branco enquanto a fase estiver em andamento.
+- **Lembrete:** às 08:00 o Telegram avisa o que está pendente ou atrasado (interruptor próprio em Configurações → Notificações).
+
+![Página Calendário de manejo](docs/img/painel-calendario.png)
 
 ### Relógio de eventos
 As últimas 24 horas num relógio. A faixa de luz segue o fotoperíodo da fase ativa (18/6 na vegetação, 12/12 na floração). O aquecedor e o umidificador têm anéis próprios: cada trecho pintado é um período ligado, com o VPD no início e no fim. No umidificador, o detalhe mostra a regra do clima por VPD e o motivo de cada ação (ponto de ligar, ponto de desligar, borda da faixa ou trava), com a leitura do sensor naquele momento. Porta, avisos, trocas de fase e ajustes das automações aparecem como pontos. No topo, um resumo das 24h que também filtra; embaixo, a lista separada em Hoje e Ontem.
@@ -99,14 +120,14 @@ As faixas ideais de cada fase podem ser ajustadas em Configurações.
 ### Configurações
 - **Painel:** nome do cultivo, página inicial, atualização automática (5, 10 ou 30 s, ou 1, 2, 5 ou 10 min; padrão 5 s) e período padrão do histórico. Cada atualização é leve: o painel pergunta ao `ao_vivo.php` o que mudou e só busca leituras novas ou eventos quando há algo novo. A carga completa acontece ao abrir, depois de ações e a cada 5 min.
 - **Faixas de alerta:** solo, temperatura e umidade interna (mínimo e máximo), VPD ideal por fase (a mesma faixa usada pelo clima por VPD), alerta da caixa d'água (padrão 20%) e o tempo para considerar o dispositivo sem dados. O servidor valida tudo e aceita vírgula decimal.
-- **Notificações:** conexão com o Telegram, mensagem de teste e os quatro interruptores de aviso.
+- **Notificações:** conexão com o Telegram, mensagem de teste e os interruptores de aviso.
 - **Luz:** duração do modo manual (15, 30, 60 ou 120 min). O valor é enviado ao ESP32, e o painel mostra quando ele aplicou.
 - **Conta e usuários:** troca de senha. O administrador também gerencia o código de convite e as contas.
 
 ![Página Configurações](docs/img/painel-configuracoes.png)
 
 ### No celular
-O mesmo painel se adapta à tela do celular, com o menu recolhido no botão ☰.
+O mesmo painel se adapta à tela do celular, com o menu recolhido no botão ☰ e um atalho para o Calendário na barra do topo.
 
 ![Painel no celular](docs/img/painel-celular.png)
 
@@ -121,6 +142,7 @@ O mesmo painel se adapta à tela do celular, com o menu recolhido no botão ☰.
 | Dispositivo offline | Passou o tempo de "Dispositivo sem dados" sem leituras |
 | Timer não confirmado | O ESP32 não confirmou o timer da fase ativa em 5 min, ou usa um horário diferente |
 | Resumo diário | Às 08:00: médias do dia anterior, nível da caixa d'água e dia do ciclo (desligado por padrão) |
+| Manejo do dia | Às 08:00, uma vez por dia: aplicações pendentes ou atrasadas do calendário (ligado por padrão) |
 
 Cada tipo de aviso chega no máximo uma vez a cada 30 min. Quando a situação volta ao normal, chega um aviso de **"normalizado"**. Todos os envios ficam registrados no Relógio de eventos.
 
@@ -268,7 +290,9 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 │   └── secrets.example.h        # modelo de credenciais (copie para secrets.h)
 ├── hostinger/                   # painel + API (vai para o public_html)
 │   ├── index.php                # painel (todas as páginas)
-│   ├── partials/                # cabeçalho e rodapé comuns
+│   ├── partials/                # cabeçalho, rodapé e a cena da estufa (estufa.php)
+│   ├── estufa.js                # animação e estados da estufa do Início
+│   ├── manejo.php / manejo.js   # Calendário de manejo: produtos, registros, repetição e fases
 │   ├── img/                     # símbolo da marca (logo.png), ícones do app e favicons
 │   ├── fonts/                   # Demetra Display (só o nome Smart Demetra)
 │   ├── login.php / logout.php   # acesso e cadastro
@@ -292,7 +316,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 │   ├── config.example.php       # modelo de configuração (copie para config.php)
 │   └── sql/
 │       ├── schema.sql           # instalação nova
-│       └── migracoes/           # 002 a 009 (.up.sql automático, .down.sql manual)
+│       └── migracoes/           # 002 a 012 (.up.sql automático, .down.sql manual)
 ├── docs/
 │   ├── img/                     # imagens deste README e ícone
 │   └── verificacao-manual.md    # roteiro de testes por página
@@ -308,6 +332,7 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 |---|---|---|
 | `index.php`, `configuracoes.php`, `usuarios.php`, `enviar_comando.php` | Sessão (login) | Painel, preferências, contas e envio de comandos |
 | `fotoperiodo.php`, `notificacoes.php`, `exportar_csv.php` | Sessão | Troca de fase, Telegram e CSV |
+| `manejo.php` | Sessão | Calendário de manejo: `GET ?mes=AAAA-MM` e ações `criar`, `alternar`, `remover`, `novo_produto`, `salvar_fase` e `limpar_fase` |
 | `ao_vivo.php` | Sessão | Atualização leve: status, estado atual, última leitura e os ids mais recentes de leituras e eventos |
 | `dispositivo.php` | Sessão (alterações só para admin) | Token do hardware, vinculação e atividade recente |
 | `dados.php`, `comandos.php` | Sessão | Leituras para os gráficos e eventos (`dados.php?periodo=24h&desde=<id>` devolve só as leituras novas) |
@@ -342,6 +367,8 @@ O roteiro em [`docs/verificacao-manual.md`](docs/verificacao-manual.md) diz, pá
 | `estado_atual` | Último estado enviado pelo ESP32 (a cada 5 s, uma linha só) |
 | `configuracoes` | Horários de luz, fase e início do ciclo, faixas, Telegram e preferências |
 | `trocas_fase` | Trocas de fase programadas |
+| `manejo_produtos` / `manejo_registros` / `manejo_registro_produtos` | Calendário de manejo: produtos, aplicações (feitas e agendadas, com repetição) e produtos de cada aplicação |
+| `manejo_fases` | Início e fim de cada fase do cultivo definidos no calendário |
 | `dispositivos` | Firmware, sinal, último contato e hash do token do ESP32 |
 | `notificacoes_estado` | Último aviso de cada tipo (limite de 30 min e "normalizado") |
 | `usuarios` / `lembrar_tokens` | Contas e sessões "lembrar de mim" |

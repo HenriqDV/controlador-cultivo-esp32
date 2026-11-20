@@ -59,7 +59,7 @@ function normalizar_preferencia(string $chave, $valor): ?string
             if ($v === 'automacao') {
                 $v = 'fotoperiodo'; // nome antigo da página
             }
-            return in_array($v, ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'caixa', 'historico', 'dispositivo', 'configuracoes'], true) ? $v : null;
+            return in_array($v, ['inicio', 'calendario', 'relogio', 'fotoperiodo', 'comandos', 'caixa', 'historico', 'dispositivo', 'configuracoes'], true) ? $v : null;
         case 'intervalo_atualizacao_seg':
             return in_array($v, INTERVALOS_ATUALIZACAO, true) ? $v : null;
         case 'periodo_padrao_historico':

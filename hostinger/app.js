@@ -5,7 +5,7 @@
 const sidebar = document.getElementById('sidebar');
 const overlay = document.getElementById('sidebarOverlay');
 const btnHamburger = document.getElementById('btnHamburger');
-const ABAS_VALIDAS = ['inicio', 'relogio', 'fotoperiodo', 'comandos', 'caixa', 'historico', 'dispositivo', 'configuracoes'];
+const ABAS_VALIDAS = ['inicio', 'calendario', 'relogio', 'fotoperiodo', 'comandos', 'caixa', 'historico', 'dispositivo', 'configuracoes'];
 
 function abrirSidebar() { sidebar.classList.add('aberta'); overlay.classList.add('visivel'); document.body.classList.add('menu-aberto'); }
 function fecharSidebar() { sidebar.classList.remove('aberta'); overlay.classList.remove('visivel'); document.body.classList.remove('menu-aberto'); }
@@ -19,6 +19,9 @@ function mudarAba(aba) {
   abaAtual = aba;
   document.querySelectorAll('.aba').forEach(el => el.classList.toggle('ativa', el.id === 'aba-' + aba));
   document.querySelectorAll('.nav-item[data-aba]').forEach(btn => btn.classList.toggle('ativo', btn.dataset.aba === aba));
+  const btnCal = document.getElementById('btnCalendarioTopo');
+  if (btnCal) btnCal.classList.toggle('ativo', aba === 'calendario');
+  if (typeof fecharAtencao === 'function') fecharAtencao(false);
   fecharSidebar();
   try { history.replaceState(null, '', '#' + aba); } catch (e) { /* ignora */ }
   // Chart.js precisa recalcular o tamanho ao reaparecer.
@@ -27,6 +30,7 @@ function mudarAba(aba) {
     setTimeout(() => { [graficoTemperatura, graficoUmidade, graficoSolo, graficoAgua, graficoVpd].forEach(g => { if (g) g.resize(); }); }, 0);
   }
   if (aba === 'inicio') { setTimeout(() => { Object.values(h6Graficos).forEach(g => g.resize()); }, 0); }
+  if (aba === 'calendario' && typeof manejoAbrirAba === 'function') manejoAbrirAba();
   if (aba === 'relogio') renderizarRoda();
   if (aba === 'fotoperiodo') renderizarFotoperiodo();
   if (aba === 'caixa') { renderizarCaixa(); setTimeout(() => { if (graficoCaixa) graficoCaixa.resize(); }, 0); }
@@ -1428,6 +1432,7 @@ function renderizarStatusInicio(ctx, solo, caixa, saude) {
   // Sensores
   saude.travados.forEach(s => itens.push({ titulo: s.nome + ': mesmo valor há mais de 3 h', detalhe: 'O sensor pode estar travado. Confira a conexão ou reinicie o ESP32.', acao: 'Ver dispositivo', aba: 'dispositivo' }));
 
+  if (typeof manejoItensAtencao === 'function') manejoItensAtencao().forEach(i => itens.push(i));
   itens.sort((a, b) => (a.leve ? 1 : 0) - (b.leve ? 1 : 0));
   const sec = document.getElementById('iniStatus');
   const graves = itens.filter(i => !i.leve).length;
@@ -1446,6 +1451,7 @@ function renderizarStatusInicio(ctx, solo, caixa, saude) {
   htmlSeMudou(document.getElementById('iniStatusLista'), itens.map(i =>
     '<div class="ini-item' + (i.leve ? ' leve' : '') + '"><div class="ini-item-texto"><strong>' + escapeHtml(i.titulo) + '</strong><small>' + escapeHtml(i.detalhe) + '</small></div>' +
     (i.acao ? '<a class="ini-item-acao" href="#' + i.aba + '" data-ir-aba="' + i.aba + '">' + escapeHtml(i.acao) + '<svg data-lucide="arrow-right"></svg></a>' : '') + '</div>').join(''));
+  if (typeof atualizarSino === 'function') atualizarSino(itens.length);
 }
 
 /* ---------- Tudo junto ---------- */
@@ -3816,7 +3822,8 @@ function atualizarSeloFase() {
   if (!el) return;
   const fase = ultimoModoAtual === 'floracao' ? 'floracao' : 'vegetativo';
   const dia = CICLO && (CICLO.fase_pedida || CICLO.fase) === fase && CICLO.dia ? ' · dia ' + CICLO.dia : '';
-  el.querySelector('span').textContent = NOME_MODO[fase] + dia;
+  const rotuloEstagio = typeof estagioRotuloSelo === 'function' ? estagioRotuloSelo() : null;
+  el.querySelector('span').textContent = rotuloEstagio || (NOME_MODO[fase] + dia);
 }
 
 /* ==================== Ciclo principal ==================== */

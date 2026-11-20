@@ -35,12 +35,7 @@ $ehAdmin = auth_eh_admin();
 
     <!-- ===================== ABA: INÍCIO ===================== -->
     <div class="aba ativa" id="aba-inicio">
-      <h1 class="titulo-aba sem-sub">In&iacute;cio</h1>
-      <div class="selos-status">
-        <span class="selo-status" id="seloConexao"><i></i><span>verificando…</span></span>
-        <span class="selo-status neutro" id="seloFase"><svg data-lucide="sprout"></svg><span>--</span></span>
-        <span class="selo-status neutro" id="seloLuz"><svg data-lucide="sun"></svg><span><span class="skeleton" id="luzContagem">--</span><span id="luzLegenda"></span></span></span>
-      </div>
+<?php require __DIR__ . '/partials/estufa.php'; ?>
 
       <div class="aviso-offline" id="avisoOffline" hidden>
         <div class="aviso-offline-icone"><svg data-lucide="wifi-off"></svg></div>
@@ -50,16 +45,6 @@ $ehAdmin = auth_eh_admin();
           <a href="#dispositivo" data-ir-aba="dispositivo">Ver dispositivo &rarr;</a>
         </div>
       </div>
-
-      <!-- O que pede atenção agora (desvios que duram 15 min ou mais) -->
-      <section class="ini-status" id="iniStatus" aria-live="polite">
-        <div class="ini-status-topo">
-          <span class="ini-status-icone" id="iniStatusIcone"><svg data-lucide="circle-check"></svg></span>
-          <h2 id="iniStatusTitulo">Verificando…</h2>
-          <span class="ini-status-ok" id="iniStatusOk"></span>
-        </div>
-        <div class="ini-status-lista" id="iniStatusLista"></div>
-      </section>
 
       <!-- Ambiente interno: últimas 6, 3 ou 1 hora, com luz e equipamentos no mesmo eixo -->
       <section class="h6-card" id="hist6" aria-label="Ambiente interno nas &uacute;ltimas horas">
@@ -188,6 +173,93 @@ $ehAdmin = auth_eh_admin();
       </div>
 
       <div class="ini-saude" id="iniSaude"></div>
+    </div>
+
+    <!-- ===================== ABA: CALENDÁRIO DE MANEJO ===================== -->
+    <div class="aba" id="aba-calendario">
+      <div class="aba-topo">
+        <h1 class="titulo-aba">Calend&aacute;rio de manejo</h1>
+        <div class="aba-topo-selos">
+          <span class="selo-status neutro" id="calSeloPend"><svg data-lucide="clock"></svg><span>--</span></span>
+        </div>
+      </div>
+      <p class="subtitulo-aba">Marque o que foi aplicado em cada dia e agende as pr&oacute;ximas aplica&ccedil;&otilde;es. No dia, &eacute; s&oacute; dar o check quando fizer.</p>
+
+      <div class="cal-grade">
+        <section class="cal-card" aria-label="Calend&aacute;rio">
+          <div class="cal-mes-topo">
+            <button type="button" class="cal-nav" id="calAnterior" aria-label="M&ecirc;s anterior"><svg data-lucide="chevron-left"></svg></button>
+            <div class="cal-mes-titulo" id="calMesTitulo" aria-live="polite">--</div>
+            <button type="button" class="cal-nav" id="calProximo" aria-label="Pr&oacute;ximo m&ecirc;s"><svg data-lucide="chevron-right"></svg></button>
+          </div>
+          <div class="cal-semana" aria-hidden="true"><span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>S&aacute;b</span></div>
+          <div class="cal-dias" id="calDias"></div>
+          <div class="cal-legenda">
+            <span><i style="background:var(--accent);"></i>Aplicado</span>
+            <span><i style="background:var(--amber);"></i>Agendado</span>
+            <span><i style="background:var(--red);"></i>Atrasado</span>
+            <span class="cal-leg-fase">Faixa colorida: fase do cultivo</span>
+          </div>
+        </section>
+
+        <section class="cal-dia-painel" aria-label="Dia selecionado">
+          <div class="cal-dia-topo"><h2 id="calDiaTitulo">--</h2><span id="calDiaContagem"></span></div>
+          <div id="calLista"></div>
+          <button type="button" class="btn btn-primario cal-add" id="calAdd"><svg data-lucide="plus"></svg><span>Registrar aplica&ccedil;&atilde;o</span></button>
+
+          <form class="cal-form" id="calForm" hidden autocomplete="off">
+            <h3>Novo registro</h3>
+            <div class="cal-modo" role="group" aria-label="Situa&ccedil;&atilde;o">
+              <button type="button" data-modo="feito" class="ativo" aria-pressed="true">J&aacute; apliquei</button>
+              <button type="button" data-modo="agendado" aria-pressed="false">Agendar</button>
+            </div>
+            <div class="cal-campo">
+              <span class="rotulo">Produtos (toque para marcar)</span>
+              <div class="cal-produtos" id="calProdutos" role="group" aria-label="Produtos"></div>
+            </div>
+            <div class="cal-campo">
+              <label for="calNovoProd">Outro produto</label>
+              <div class="cal-novo-prod">
+                <input type="text" id="calNovoProd" maxlength="60" placeholder="Nome do produto">
+                <button type="button" class="btn" id="calNovoProdBtn">Adicionar</button>
+              </div>
+            </div>
+            <div class="cal-campo">
+              <span class="rotulo">Repetir</span>
+              <div class="cal-modo cal-repetir" id="calRepetir" role="group" aria-label="Repetir a aplica&ccedil;&atilde;o">
+                <button type="button" data-rep="0" class="ativo" aria-pressed="true">N&atilde;o</button>
+                <button type="button" data-rep="3" aria-pressed="false">3 d</button>
+                <button type="button" data-rep="7" aria-pressed="false">7 d</button>
+                <button type="button" data-rep="14" aria-pressed="false">14 d</button>
+                <button type="button" data-rep="x" aria-pressed="false">Outro</button>
+              </div>
+              <div class="cal-rep-outro" id="calRepOutro" hidden>
+                <label for="calRepDias">A cada</label>
+                <input type="number" id="calRepDias" min="1" max="90" step="1" value="10" inputmode="numeric">
+                <span>dias</span>
+              </div>
+              <span class="cal-dica" id="calRepDica" hidden>Ao dar o check, a pr&oacute;xima aplica&ccedil;&atilde;o &eacute; agendada sozinha e entra no aviso do Telegram.</span>
+            </div>
+            <div class="cal-campo">
+              <label for="calNota">Observa&ccedil;&otilde;es (opcional)</label>
+              <textarea id="calNota" maxlength="500" rows="3" placeholder="Dose, como foi aplicado, rea&ccedil;&atilde;o da planta..."></textarea>
+              <span class="cal-contador" id="calContador">0/500</span>
+            </div>
+            <p class="cal-aviso-erro" id="calErro" role="alert" hidden></p>
+            <div class="cal-form-acoes">
+              <button type="submit" class="btn btn-primario" id="calSalvar" disabled>Salvar registro</button>
+              <button type="button" class="btn" id="calCancelar">Cancelar</button>
+            </div>
+          </form>
+        </section>
+      </div>
+
+      <section class="cal-card cal-fases" aria-labelledby="calFasesTitulo">
+        <h2 id="calFasesTitulo" class="cal-fases-titulo">Fases do cultivo</h2>
+        <p class="cal-dica">Marque quando cada fase come&ccedil;ou e terminou. O calend&aacute;rio pinta os dias de cada fase e a estufa do In&iacute;cio mostra a fase de hoje. Deixe o fim em branco enquanto a fase estiver em andamento. Se o ESP32 j&aacute; estiver em flora&ccedil;&atilde;o, ela prevalece sobre uma fase anterior.</p>
+        <div id="calFases"></div>
+        <p class="cal-aviso-erro" id="calFasesErro" role="alert" hidden></p>
+      </section>
     </div>
 
     <!-- ===================== ABA: COMANDOS ===================== -->
@@ -481,6 +553,7 @@ $ehAdmin = auth_eh_admin();
             <div class="cfg-controle">
               <select name="pagina_inicial">
                 <option value="inicio">In&iacute;cio</option>
+                <option value="calendario">Calend&aacute;rio de manejo</option>
                 <option value="relogio">Rel&oacute;gio de eventos</option>
                 <option value="fotoperiodo">Fotoper&iacute;odo</option>
                 <option value="comandos">Comandos</option>
@@ -594,6 +667,10 @@ $ehAdmin = auth_eh_admin();
           <div class="cfg-texto"><span>Resumo di&aacute;rio &agrave;s 08:00</span><small>M&eacute;dias do dia anterior e dia do ciclo</small></div>
           <button type="button" class="switch verde" role="switch" aria-checked="false" data-notif="notif_resumo" aria-label="Resumo di&aacute;rio &agrave;s 08:00"></button>
         </div>
+        <div class="cfg-linha cfg-switch">
+          <div class="cfg-texto"><span>Manejo do dia &agrave;s 08:00</span><small>Aplica&ccedil;&otilde;es agendadas para hoje e as atrasadas</small></div>
+          <button type="button" class="switch verde" role="switch" aria-checked="false" data-notif="notif_manejo" aria-label="Manejo do dia &agrave;s 08:00"></button>
+        </div>
         <p class="cfg-nota" style="padding:4px 0 14px;">No m&aacute;ximo 1 aviso do mesmo tipo a cada 30 min, e outro quando normalizar.</p>
       </div>
 
@@ -656,8 +733,24 @@ $ehAdmin = auth_eh_admin();
 <?php endif; ?>
     </div>
 
+    <!-- Pontos de atenção: popup aberto pelo sininho da estufa (estufa.js) -->
+    <div class="modal-atencao" id="modalAtencao" hidden>
+      <button type="button" class="modal-atencao-fundo" id="modalAtencaoFundo" tabindex="-1" aria-label="Fechar"></button>
+        <section class="ini-status" id="iniStatus" aria-live="polite" role="dialog" aria-modal="true" aria-labelledby="iniStatusTitulo">
+          <div class="ini-status-topo">
+            <span class="ini-status-icone" id="iniStatusIcone"><svg data-lucide="circle-check"></svg></span>
+            <h2 id="iniStatusTitulo">Verificando…</h2>
+            <button type="button" class="modal-atencao-fechar" id="btnFecharAtencao" aria-label="Fechar"><svg data-lucide="x"></svg></button>
+            <span class="ini-status-ok" id="iniStatusOk"></span>
+          </div>
+          <div class="ini-status-lista" id="iniStatusLista"></div>
+        </section>
+    </div>
+
 <?php require __DIR__ . '/partials/rodape.php'; ?>
 
 <script src="app.js?v=<?= (int) @filemtime(__DIR__ . '/app.js') ?>"></script>
+<script src="estufa.js?v=<?= (int) @filemtime(__DIR__ . '/estufa.js') ?>"></script>
+<script src="manejo.js?v=<?= (int) @filemtime(__DIR__ . '/manejo.js') ?>"></script>
 </body>
 </html>

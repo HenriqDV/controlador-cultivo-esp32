@@ -8,6 +8,7 @@
     </a>
     <nav class="sidebar-nav">
       <button type="button" class="nav-item ativo" data-aba="inicio"><svg data-lucide="home"></svg>In&iacute;cio</button>
+      <button type="button" class="nav-item" data-aba="calendario"><svg data-lucide="calendar-days"></svg>Calend&aacute;rio de manejo<span class="nav-contagem" id="navCalPend" hidden>0</span></button>
       <button type="button" class="nav-item" data-aba="relogio"><svg data-lucide="clock"></svg>Rel&oacute;gio de eventos</button>
       <button type="button" class="nav-item" data-aba="fotoperiodo"><svg data-lucide="timer"></svg>Fotoper&iacute;odo</button>
       <button type="button" class="nav-item" data-aba="comandos"><svg data-lucide="sliders-horizontal"></svg>Comandos</button>
@@ -30,5 +31,8 @@
         <img class="logo-marca" src="img/logo.png" alt="" width="66" height="66">
         <span class="marca-nome" id="nomeCultivoTopo">Smart Demetra</span>
       </a>
-      <button type="button" class="btn-hamburger" id="btnHamburger" aria-label="Abrir menu"><svg data-lucide="menu"></svg></button>
+      <div class="topo-acoes">
+        <button type="button" class="btn-calendario" id="btnCalendarioTopo" data-ir-aba="calendario" aria-label="Abrir calend&aacute;rio de manejo" title="Calend&aacute;rio de manejo"><svg data-lucide="calendar-days"></svg></button>
+        <button type="button" class="btn-hamburger" id="btnHamburger" aria-label="Abrir menu"><svg data-lucide="menu"></svg></button>
+      </div>
     </header>

@@ -5,7 +5,7 @@ declare(strict_types=1);
 // Token: constante TELEGRAM_BOT_TOKEN no config.php ou variável de ambiente.
 // Chat, interruptores e estado ficam no banco (configuracoes + notificacoes_estado).
 
-const NOTIF_PADRAO = ['notif_faixa' => '1', 'notif_offline' => '1', 'notif_timer' => '1', 'notif_resumo' => '0'];
+const NOTIF_PADRAO = ['notif_faixa' => '1', 'notif_offline' => '1', 'notif_timer' => '1', 'notif_resumo' => '0', 'notif_manejo' => '1'];
 const NOTIF_INTERVALO_MIN = 30;     // no máximo 1 aviso do mesmo tipo nesse intervalo
 const NOTIF_TIMER_ESPERA_SEG = 300; // timer sem confirmação depois de 5 min
 const NOTIF_RESUMO_HORA = 8;        // resumo diário às 08:00
@@ -351,6 +351,45 @@ function enviar_resumo_diario(bool $forcar = false): bool
     return $ok;
 }
 
+// Lembrete do calendário de manejo às 08:00: aplicações agendadas para hoje e as que ficaram atrasadas (cron).
+function enviar_lembrete_manejo(): bool
+{
+    $agora = agora_local();
+    $hoje = $agora->format('Y-m-d');
+    if ((int) $agora->format('G') < NOTIF_RESUMO_HORA || ler_chave('notif_manejo_dia') === $hoje) {
+        return false;
+    }
+    if (!notif_preferencias()['notif_manejo'] || !telegram_conectado()) {
+        return false;
+    }
+    salvar_configuracao('notif_manejo_dia', $hoje); // marca antes: uma falha de envio não vira rajada de mensagens
+    $stmt = db()->prepare(
+        "SELECT r.data, r.observacao, r.repetir_dias,
+                GROUP_CONCAT(p.nome ORDER BY p.ordem, p.nome SEPARATOR ' + ') AS produtos
+         FROM manejo_registros r
+         LEFT JOIN manejo_registro_produtos rp ON rp.registro_id = r.id
+         LEFT JOIN manejo_produtos p ON p.id = rp.produto_id
+         WHERE r.situacao = 'agendado' AND r.data <= ?
+         GROUP BY r.id, r.data, r.observacao, r.repetir_dias
+         ORDER BY r.data, r.id LIMIT 15"
+    );
+    $stmt->execute([$hoje]);
+    $itens = $stmt->fetchAll();
+    if (!$itens) {
+        return false;
+    }
+    $linhas = ['🌱 Manejo para hoje · dê o check no calendário depois de aplicar'];
+    foreach ($itens as $i) {
+        $atraso = $i['data'] < $hoje ? ' (atrasado desde ' . substr($i['data'], 8, 2) . '/' . substr($i['data'], 5, 2) . ')' : '';
+        $rep = $i['repetir_dias'] ? ' · repete a cada ' . (int) $i['repetir_dias'] . ' d' : '';
+        $obs = trim((string) $i['observacao']) !== '' ? "\n   " . mb_substr((string) $i['observacao'], 0, 120) : '';
+        $linhas[] = '• ' . ($i['produtos'] ?: 'Produto removido') . $atraso . $rep . $obs;
+    }
+    $ok = telegram_enviar(implode("\n", $linhas));
+    registrar_evento_painel('notificacao', 'manejo', $ok ? 'enviada' : 'falhou', 'telegram');
+    return $ok;
+}
+
 // Tudo que o cron avalia a cada minuto.
 function executar_notificacoes(): void
 {
@@ -363,4 +402,9 @@ function executar_notificacoes(): void
     avaliar_offline();
     avaliar_timer();
     enviar_resumo_diario();
+    try {
+        enviar_lembrete_manejo();
+    } catch (Throwable $e) {
+        error_log('lembrete de manejo: ' . $e->getMessage()); // migração do calendário ainda não aplicada
+    }
 }
